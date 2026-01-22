@@ -70,3 +70,6 @@ docs/screenshots/*.png
 # Playwright artifacts
 apps/web/test-results/
 apps/web/playwright-report/
+
+# GitHub Actions workflows (kept out of pushes because PAT lacks workflow permission)
+.github/workflows/
