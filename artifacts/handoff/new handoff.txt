@@ -117,7 +117,8 @@ ZIP에 포함할 파일들(상세, 누락 금지):
 8) artifacts/handoff/test_fast.log
 
 [E] 핵심 문서/런북 변경이 있는 경우(있으면 반드시 포함)
-9) 변경된 docs/ 파일 중 “핵심” 3~10개를 그대로 포함(복사본으로 ZIP에 넣기)
+9) 변경된 docs/ 파일 중 “핵심” 1~10개를 그대로 포함(복사본으로 ZIP에 넣기)
+   - 변경된 docs가 1~2개뿐이면: 해당 파일을 전부 포함
    - 예: docs/RUNBOOK_ANDROID_DEEPLINKS.md
    - 예: docs/HANDOFF_REPORT.md (있다면)
 
@@ -197,4 +198,5 @@ PY
 
 ──────────────────────────────────────────────────────────────────────────────
 변경 이력
-- 2026-01-23: 운영자 관점으로 규칙 강화(Operational Notes 강제, ZIP_READY 절대경로 강제, zip 구성에 규칙 파일/`test_fast.log` 추가, `DIFF_BASE` 도입으로 직푸시 후 빈 diff 문제 방지, zip 미설치 환경을 위한 python3 zip 예시 추가). 
+- 2026-01-23: 운영자 관점으로 규칙 강화(Operational Notes 강제, ZIP_READY 절대경로 강제, zip 구성에 규칙 파일/`test_fast.log` 추가, `DIFF_BASE` 도입으로 직푸시 후 빈 diff 문제 방지, zip 미설치 환경을 위한 python3 zip 예시 추가).
+- 2026-01-23: docs 포함 규칙의 모호성 제거(변경된 docs가 1개뿐인 경우도 허용되도록 1~10개로 조정).
