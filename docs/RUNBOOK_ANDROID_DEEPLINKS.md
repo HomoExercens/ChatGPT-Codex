@@ -14,7 +14,10 @@ share → install → open exact deep link → beat-this.
 Set these env vars on the web origin that serves `/s/*` (same origin as your shared links):
 
 - `NEUROLEAGUE_ANDROID_ASSETLINKS_PACKAGE_NAME` (example: `com.neuroleague.twa`)
-- `NEUROLEAGUE_ANDROID_ASSETLINKS_SHA256_CERT_FINGERPRINTS` (comma-separated SHA256 fingerprints)
+- `NEUROLEAGUE_ANDROID_ASSETLINKS_SHA256_CERT_FINGERPRINTS` (comma-separated SHA-256 fingerprints)
+  - Supports multiple fingerprints (debug + release + CI).
+  - Format must be `AA:BB:...` (32 bytes / 64 hex chars with `:` separators), example:
+    - `00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00`
 - Optional: `NEUROLEAGUE_ANDROID_INSTALL_URL` (Play Store URL used as an “Install App” CTA on share landings)
 
 Verify:
@@ -22,6 +25,7 @@ Verify:
 - `curl -s https://YOUR_DOMAIN/.well-known/assetlinks.json | jq .`
 
 If not configured, it returns `[]` (not verified).
+If configured with an invalid fingerprint, the API should fail fast on startup (config validation).
 
 ## 2) Build and install the Android wrapper
 
@@ -66,6 +70,9 @@ Expected:
 ## 5) Verify `app_open_deeplink` analytics
 
 The wrapper posts `app_open_deeplink` to `POST /api/events` when launched with an incoming URL.
+If the device is offline, the event is queued (persisted) and flushed on:
+- next app start, and
+- when the network becomes available (best-effort).
 
 Local test without Android:
 
@@ -75,3 +82,16 @@ Local test without Android:
 
 To confirm ingestion locally, inspect `artifacts/neuroleague.db` and `events` table (or use existing Ops/analytics pages).
 
+Offline queue smoke test (device/emulator):
+
+1) Enable airplane mode.
+2) Trigger a deep link:
+   - `adb shell am start -a android.intent.action.VIEW -d \"https://YOUR_DOMAIN/s/clip/r_seed_001?start=0.0&end=10.0&v=1&utm_source=offline_test\"`
+3) Disable airplane mode / enable Wi‑Fi.
+4) Confirm `app_open_deeplink` appears in events/ops analytics (may take a few seconds).
+
+## Failure modes checklist
+
+- `/.well-known/assetlinks.json` returns `[]`: missing env vars or fingerprints not set.
+- API fails to boot with fingerprint validation error: fingerprint string is malformed (wrong length/format, stray characters).
+- App Links not verified (`pm get-app-links`): assetlinks mismatch (package name or signing fingerprint), wrong domain, or HTTPS not reachable.

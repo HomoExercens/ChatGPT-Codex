@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import re
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -123,3 +126,44 @@ class Settings(BaseSettings):
     android_assetlinks_package_name: str | None = None
     android_assetlinks_sha256_cert_fingerprints: str | None = None
     android_install_url: str | None = None
+
+    @field_validator("android_assetlinks_sha256_cert_fingerprints")
+    @classmethod
+    def _validate_android_assetlinks_fingerprints(
+        cls, v: str | None
+    ) -> str | None:
+        raw = str(v or "").strip()
+        if not raw:
+            return None
+
+        fp_re = re.compile(r"^[0-9A-F]{2}(?::[0-9A-F]{2}){31}$", flags=re.IGNORECASE)
+
+        out: list[str] = []
+        seen: set[str] = set()
+        invalid: list[str] = []
+        for item in raw.replace("\n", ",").split(","):
+            fp = str(item or "").strip()
+            if not fp:
+                continue
+            norm = fp.upper()
+            if not fp_re.match(norm):
+                invalid.append(fp)
+                continue
+            if norm in seen:
+                continue
+            seen.add(norm)
+            out.append(norm)
+
+        if invalid:
+            raise ValueError(
+                "NEUROLEAGUE_ANDROID_ASSETLINKS_SHA256_CERT_FINGERPRINTS contains an invalid "
+                f"fingerprint: {invalid[0]!r} (expected 'AA:BB:..' 32 bytes SHA-256)"
+            )
+        if not out:
+            return None
+        if len(out) > 16:
+            raise ValueError(
+                "NEUROLEAGUE_ANDROID_ASSETLINKS_SHA256_CERT_FINGERPRINTS has too many entries "
+                f"({len(out)} > 16)"
+            )
+        return ",".join(out)
