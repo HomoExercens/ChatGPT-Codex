@@ -89,6 +89,32 @@ def run_once(*, days: int = 30, queue_type: str = "ranked") -> dict[str, object]
                         created_at=now,
                     )
                 )
+
+                # Guardrailed bandit auto-weighting (best-effort).
+                try:
+                    from neuroleague_api.experiments import bandit_update_for_experiment
+
+                    bandit_results = {
+                        "clip_len_v1": bandit_update_for_experiment(
+                            session, experiment_key="clip_len_v1", now=now
+                        ),
+                        "captions_v2": bandit_update_for_experiment(
+                            session, experiment_key="captions_v2", now=now
+                        ),
+                    }
+                    session.add(
+                        Event(
+                            id=f"ev_{uuid4().hex}",
+                            user_id=None,
+                            type="ops_bandit_update",
+                            payload_json=orjson.dumps(
+                                {"results": bandit_results}
+                            ).decode("utf-8"),
+                            created_at=now,
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
                 session.commit()
 
     # Daily maintenance: expire scheduled featured items (safe to run any time).
