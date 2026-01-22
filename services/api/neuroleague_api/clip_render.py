@@ -153,6 +153,7 @@ def cache_key(
     clip_len_variant: str | None = None,
     captions_version: str | None = None,
     captions_template_id: str | None = None,
+    render_profile: str | None = None,
     renderer_version: str = "v1",
 ) -> str:
     msg = f"{renderer_version}:{kind}:{replay_digest}:{start_tick}:{end_tick}:{fps}:{scale}:{theme}"
@@ -165,6 +166,8 @@ def cache_key(
         msg += f":captions={captions_version}"
     if captions_template_id:
         msg += f":caption_tpl={captions_template_id}"
+    if render_profile:
+        msg += f":profile={render_profile}"
     return hashlib.sha256(msg.encode("utf-8")).hexdigest()
 
 
@@ -970,6 +973,8 @@ def render_mp4_to_path(
     out_path: Path,
     aspect: Aspect = "16:9",
     captions_lines: list[str] | None = None,
+    mp4_preset: str = "ultrafast",
+    mp4_crf: int = 28,
 ) -> None:
     from imageio_ffmpeg import get_ffmpeg_exe
 
@@ -985,6 +990,9 @@ def render_mp4_to_path(
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_out = out_path.with_suffix(".tmp.mp4")
+
+    mp4_crf = max(10, min(40, int(mp4_crf)))
+    mp4_preset = str(mp4_preset or "ultrafast")
 
     with tempfile.TemporaryDirectory(prefix="neuroleague_clip_") as tmpdir:
         frames_dir = Path(tmpdir)
@@ -1019,9 +1027,9 @@ def render_mp4_to_path(
             "-c:v",
             "libx264",
             "-preset",
-            "ultrafast",
+            mp4_preset,
             "-crf",
-            "28",
+            str(mp4_crf),
             "-pix_fmt",
             "yuv420p",
             "-threads",

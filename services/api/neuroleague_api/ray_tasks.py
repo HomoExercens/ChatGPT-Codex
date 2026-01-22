@@ -970,6 +970,8 @@ def run_render_clip_job(
     )
 
     captions_template_id: str | None = None
+    mp4_preset: str | None = None
+    mp4_crf: int | None = None
     with SessionLocal() as session:
         job = session.get(RenderJob, job_id)
         if not job:
@@ -983,6 +985,13 @@ def run_render_clip_job(
         if isinstance(params, dict):
             raw_tpl = params.get("captions_template_id")
             captions_template_id = str(raw_tpl) if raw_tpl else None
+            raw_preset = params.get("mp4_preset")
+            mp4_preset = str(raw_preset).strip()[:24] if raw_preset else None
+            try:
+                raw_crf = params.get("mp4_crf")
+                mp4_crf = int(raw_crf) if raw_crf is not None else None
+            except Exception:  # noqa: BLE001
+                mp4_crf = None
 
         cache_key = str(job.cache_key or "")
         if job.status == "done" and job.artifact_path:
@@ -1050,6 +1059,8 @@ def run_render_clip_job(
                         out_path=out_path,
                         aspect=aspect,  # type: ignore[arg-type]
                         captions_lines=captions_lines,
+                        mp4_preset=mp4_preset or "ultrafast",
+                        mp4_crf=int(mp4_crf) if mp4_crf is not None else 28,
                     )
                 else:
                     from tempfile import TemporaryDirectory
@@ -1066,6 +1077,8 @@ def run_render_clip_job(
                             out_path=tmp_path,
                             aspect=aspect,  # type: ignore[arg-type]
                             captions_lines=captions_lines,
+                            mp4_preset=mp4_preset or "ultrafast",
+                            mp4_crf=int(mp4_crf) if mp4_crf is not None else 28,
                         )
                         backend.put_file(
                             key=asset_key, path=tmp_path, content_type="video/mp4"

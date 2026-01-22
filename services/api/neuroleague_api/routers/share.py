@@ -8,6 +8,7 @@ from io import BytesIO
 from typing import Any, Literal
 from urllib.parse import quote
 import zipfile
+from uuid import uuid4
 
 import orjson
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -176,7 +177,7 @@ def _sanitize_next_path(raw: str) -> str:
 
 _QR_CACHE: dict[str, bytes] = {}
 
-CREATOR_KIT_VERSION = "kitv1"
+CREATOR_KIT_VERSION = "kitv2"
 _CREATOR_KIT_ZIP_DT = (2020, 1, 1, 0, 0, 0)
 
 
@@ -476,6 +477,7 @@ def clip_creator_kit_zip(
     cv: str | None = None,
     ctpl: str | None = None,
     ref: str | None = None,
+    hq: int = 0,
 ) -> Response:
     clip_len_variant = _clip_len_variant(lenv)
     max_duration_sec = _max_duration_for_clip_len_variant(clip_len_variant)
@@ -502,12 +504,18 @@ def clip_creator_kit_zip(
             clamp_clip_params,
         )
 
+        hq_mode = bool(int(hq or 0) == 1)
+        mp4_req_fps = 30 if hq_mode else 12
+        mp4_req_scale = 2 if hq_mode else 1
+        mp4_preset = "veryfast" if hq_mode else None
+        mp4_crf = 23 if hq_mode else None
+
         mp4_start_tick, mp4_end_tick, fps, scale = clamp_clip_params(
             replay_payload=payload,
             start_sec=s,
             end_sec=e,
-            fps=12,
-            scale=1,
+            fps=mp4_req_fps,
+            scale=mp4_req_scale,
             max_duration_sec=max_duration_sec,
         )
         captions_plan = captions_plan_for_segment(
@@ -519,6 +527,7 @@ def clip_creator_kit_zip(
             forced_captions_version or (captions_plan.version or CAPTIONS_VERSION)
         )
         captions_template_id = forced_template_id or captions_plan.template_id
+        render_profile = f"creator_kit_hq:{CREATOR_KIT_VERSION}" if hq_mode else None
         mp4_key = cache_key(
             replay_digest=digest,
             kind="clip_mp4",
@@ -531,6 +540,7 @@ def clip_creator_kit_zip(
             clip_len_variant=clip_len_variant,
             captions_version=captions_version,
             captions_template_id=captions_template_id,
+            render_profile=render_profile,
         )
         mp4_asset_key = f"clips/mp4/clip_mp4_{replay_id}_{mp4_key[:16]}.mp4"
 
@@ -545,7 +555,104 @@ def clip_creator_kit_zip(
             except Exception:  # noqa: BLE001
                 mp4_exists = False
         if not mp4_exists:
-            raise HTTPException(status_code=404, detail="MP4 not cached yet")
+            if not hq_mode:
+                raise HTTPException(status_code=404, detail="MP4 not cached yet")
+
+            from neuroleague_api.models import RenderJob
+
+            existing = db.scalar(
+                select(RenderJob)
+                .where(RenderJob.cache_key == mp4_key)
+                .order_by(desc(RenderJob.created_at))
+                .limit(1)
+            )
+            if existing and existing.status in ("queued", "running", "done"):
+                return Response(
+                    content=orjson.dumps(
+                        {
+                            "queued": True,
+                            "status": existing.status,
+                            "job_id": existing.id,
+                        }
+                    ),
+                    status_code=202,
+                    media_type="application/json",
+                    headers={"Cache-Control": "no-store"},
+                )
+
+            now = datetime.now(UTC)
+            job = RenderJob(
+                id=f"rj_{uuid4().hex}",
+                user_id=None,
+                kind="clip",
+                target_replay_id=replay_id,
+                target_match_id=replay.match_id,
+                params_json=orjson.dumps(
+                    {
+                        "start_tick": int(mp4_start_tick),
+                        "end_tick": int(mp4_end_tick),
+                        "format": "mp4",
+                        "fps": int(fps),
+                        "scale": int(scale),
+                        "theme": "dark",
+                        "aspect": "9:16",
+                        "captions": True,
+                        "captions_version": captions_version,
+                        "captions_template_id": captions_template_id,
+                        "captions_event_type": captions_plan.event_type,
+                        "mp4_preset": mp4_preset,
+                        "mp4_crf": mp4_crf,
+                        "render_profile": render_profile,
+                        "creator_kit_version": CREATOR_KIT_VERSION,
+                        "creator_kit_hq": True,
+                    }
+                ).decode("utf-8"),
+                cache_key=mp4_key,
+                status="queued",
+                progress=0,
+                ray_job_id=None,
+                artifact_path=None,
+                error_message=None,
+                created_at=now,
+                finished_at=None,
+            )
+            db.add(job)
+            db.commit()
+
+            # Best-effort dispatch: only when Ray is explicitly configured.
+            settings = Settings()
+            if settings.ray_address:
+                try:
+                    from neuroleague_api.ray_runtime import ensure_ray
+                    from neuroleague_api.ray_tasks import render_clip_job
+
+                    ensure_ray()
+                    obj_ref = render_clip_job.remote(
+                        job_id=job.id,
+                        replay_id=replay_id,
+                        start_tick=int(mp4_start_tick),
+                        end_tick=int(mp4_end_tick),
+                        format="mp4",
+                        fps=int(fps),
+                        scale=int(scale),
+                        theme="dark",
+                        aspect="9:16",
+                        captions=True,
+                        db_url=settings.db_url,
+                        artifacts_dir=settings.artifacts_dir,
+                    )
+                    job.ray_job_id = obj_ref.hex()
+                    db.add(job)
+                    db.commit()
+                except Exception:  # noqa: BLE001
+                    pass
+
+            return Response(
+                content=orjson.dumps({"queued": True, "status": "queued", "job_id": job.id}),
+                status_code=202,
+                media_type="application/json",
+                headers={"Cache-Control": "no-store"},
+            )
 
         th_start_tick, th_end_tick, _fps_th, th_scale = clamp_clip_params(
             replay_payload=payload,
@@ -636,8 +743,9 @@ def clip_creator_kit_zip(
         qr_bytes, qr_etag_raw = _qr_png_bytes_for_target(target=target, scale=6)
 
         caption_hash = hashlib.sha256(caption_text.encode("utf-8")).hexdigest()
+        kit_mode = "hq" if hq_mode else "std"
         kit_seed = (
-            f"{CREATOR_KIT_VERSION}:{mp4_key}:{thumb_key}:{SHARE_CAPTION_VERSION}:"
+            f"{CREATOR_KIT_VERSION}:{kit_mode}:{mp4_key}:{thumb_key}:{SHARE_CAPTION_VERSION}:"
             f"{caption_hash}:{qr_etag_raw}"
         )
         kit_key = hashlib.sha256(kit_seed.encode("utf-8")).hexdigest()
