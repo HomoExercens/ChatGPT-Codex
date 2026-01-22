@@ -37,6 +37,7 @@ artifacts/**
 !artifacts/
 !artifacts/handoff/
 !artifacts/handoff/git 업로드 전 확인.txt
+!artifacts/handoff/new handoff.txt
 
 # Env files (local)
 .env
