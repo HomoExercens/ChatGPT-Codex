@@ -14,7 +14,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 TICKS_PER_SEC = 20
 Aspect = Literal["16:9", "9:16"]
-CAPTIONS_VERSION = "capv5"
+CAPTIONS_VERSION = "capv6"
 
 BEST_CLIP_MIN_DURATION_SEC = 6.0
 BEST_CLIP_FALLBACK_DURATION_SEC = 10.0
@@ -353,6 +353,45 @@ def _highlight_tag_set(h: dict[str, Any] | None) -> set[str]:
     return out
 
 
+def _synergy_label(h: dict[str, Any] | None) -> str:
+    if not isinstance(h, dict):
+        return ""
+    tags = h.get("tags")
+    if not isinstance(tags, list):
+        return ""
+    for t in tags:
+        if not isinstance(t, str):
+            continue
+        if not t.startswith("synergy:"):
+            continue
+        raw = t[len("synergy:") :].strip()
+        if raw:
+            return raw.replace("_", " ").strip().upper()
+    return ""
+
+
+def _hook_line_for_v2(
+    *,
+    raw_title: str,
+    portal_label: str,
+    augment_label: str,
+    synergy_label: str,
+    event_type: str,
+) -> str:
+    if portal_label:
+        return f"PORTAL {portal_label}"
+    if augment_label:
+        return f"AUGMENT {augment_label}"
+    if synergy_label:
+        return f"SYNERGY {synergy_label}"
+    if str(event_type or "") == "synergy_spike":
+        return "SYNERGY ONLINE"
+    title = " ".join(str(raw_title or "").strip().split())
+    if title and title.lower() != "turning point":
+        return title.upper()
+    return "TURNING POINT"
+
+
 def _best_event_type(
     replay_payload: dict[str, Any], *, start_tick: int, end_tick: int
 ) -> str:
@@ -450,9 +489,9 @@ _CAPTION_TEMPLATES: dict[str, list[tuple[str, str, str]]] = {
         ("generic_02", "TURNING POINT", "WATCH FULL REPLAY"),
         ("augment_01", "AUGMENT {AUGMENT}", "TURNING POINT"),
         # Viral short-form (captions_v2): one-line hook + one-line punch.
-        ("A", "BEAT THIS", "{TITLE}"),
-        ("B", "WAIT FOR IT", "{SUMMARY}"),
-        ("C", "PORTAL {PORTAL}", "{TITLE}"),
+        ("A", "{HOOK}", "{TITLE}"),
+        ("B", "{HOOK}", "{SUMMARY}"),
+        ("C", "{HOOK}", "BEAT THIS"),
     ],
 }
 
@@ -507,11 +546,20 @@ def captions_plan_for_segment(
         chosen = ("generic_01", "{TITLE}", "{SUMMARY}")
 
     tpl_id, title_fmt, body_fmt = chosen
+    synergy_label = _synergy_label(h if isinstance(h, dict) else None)
+    hook_line = _hook_line_for_v2(
+        raw_title=raw_title,
+        portal_label=portal_label,
+        augment_label=augment_label,
+        synergy_label=synergy_label,
+        event_type=event_type,
+    )
     ctx = {
         "TITLE": raw_title,
         "SUMMARY": raw_summary,
         "PORTAL": portal_label,
         "AUGMENT": augment_label,
+        "HOOK": hook_line,
     }
 
     try:
@@ -562,6 +610,29 @@ def caption_lines_for_segment(
         template_id=template_id,
     )
     return plan.lines[:3]
+
+
+CAPTIONS_V2_HOOK_ONLY_SEC: float = 0.8
+
+
+def captions_lines_for_frame(
+    *,
+    captions_lines: list[str] | None,
+    captions_template_id: str | None,
+    frame_tick: int,
+    segment_start_tick: int,
+) -> list[str]:
+    lines = [line for line in (captions_lines or []) if line]
+    if not lines:
+        return ["Turning Point"]
+
+    tpl = str(captions_template_id or "").strip()
+    if tpl in {"A", "B", "C"} and len(lines) >= 2:
+        dt = max(0, int(frame_tick) - int(segment_start_tick))
+        if (float(dt) / float(TICKS_PER_SEC)) < float(CAPTIONS_V2_HOOK_ONLY_SEC):
+            return [lines[0]]
+
+    return lines
 
 
 def _wrap_text(
@@ -837,6 +908,7 @@ def render_gif_bytes(
     theme: str,
     aspect: Aspect = "16:9",
     captions_lines: list[str] | None = None,
+    captions_template_id: str | None = None,
 ) -> bytes:
     header = replay_payload.get("header") or {}
     mode = str(header.get("mode") or "1v1")
@@ -848,6 +920,12 @@ def render_gif_bytes(
     tracker = _HpTracker(replay_payload)
     frames: list[Image.Image] = []
     for t in ticks:
+        frame_lines = captions_lines_for_frame(
+            captions_lines=captions_lines,
+            captions_template_id=captions_template_id,
+            frame_tick=t,
+            segment_start_tick=start_tick,
+        )
         units = tracker.advance_to(t)
         frames.append(
             _render_frame(
@@ -859,7 +937,7 @@ def render_gif_bytes(
                 scale=scale,
                 theme=theme,
                 aspect=aspect,
-                captions_lines=captions_lines,
+                captions_lines=frame_lines,
             )
         )
 
@@ -890,6 +968,7 @@ def render_webm_to_path(
     out_path: Path,
     aspect: Aspect = "16:9",
     captions_lines: list[str] | None = None,
+    captions_template_id: str | None = None,
 ) -> None:
     from imageio_ffmpeg import get_ffmpeg_exe
 
@@ -909,6 +988,12 @@ def render_webm_to_path(
     with tempfile.TemporaryDirectory(prefix="neuroleague_clip_") as tmpdir:
         frames_dir = Path(tmpdir)
         for idx, t in enumerate(ticks):
+            frame_lines = captions_lines_for_frame(
+                captions_lines=captions_lines,
+                captions_template_id=captions_template_id,
+                frame_tick=t,
+                segment_start_tick=start_tick,
+            )
             units = tracker.advance_to(t)
             img = _render_frame(
                 units=units,
@@ -919,7 +1004,7 @@ def render_webm_to_path(
                 scale=scale,
                 theme=theme,
                 aspect=aspect,
-                captions_lines=captions_lines,
+                captions_lines=frame_lines,
             )
             img.save(frames_dir / f"frame_{idx:06d}.png", format="PNG", optimize=True)
 
@@ -975,6 +1060,7 @@ def render_mp4_to_path(
     captions_lines: list[str] | None = None,
     mp4_preset: str = "ultrafast",
     mp4_crf: int = 28,
+    captions_template_id: str | None = None,
 ) -> None:
     from imageio_ffmpeg import get_ffmpeg_exe
 
@@ -997,6 +1083,12 @@ def render_mp4_to_path(
     with tempfile.TemporaryDirectory(prefix="neuroleague_clip_") as tmpdir:
         frames_dir = Path(tmpdir)
         for idx, t in enumerate(ticks):
+            frame_lines = captions_lines_for_frame(
+                captions_lines=captions_lines,
+                captions_template_id=captions_template_id,
+                frame_tick=t,
+                segment_start_tick=start_tick,
+            )
             units = tracker.advance_to(t)
             img = _render_frame(
                 units=units,
@@ -1007,7 +1099,7 @@ def render_mp4_to_path(
                 scale=scale,
                 theme=theme,
                 aspect=aspect,
-                captions_lines=captions_lines,
+                captions_lines=frame_lines,
             )
             img.save(frames_dir / f"frame_{idx:06d}.png", format="PNG", optimize=True)
 

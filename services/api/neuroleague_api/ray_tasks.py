@@ -1045,6 +1045,7 @@ def run_render_clip_job(
                     theme=str(theme),
                     aspect=aspect,  # type: ignore[arg-type]
                     captions_lines=captions_lines,
+                    captions_template_id=captions_template_id,
                 )
                 backend.put_bytes(key=asset_key, data=gif, content_type="image/gif")
             elif fmt == "mp4":
@@ -1061,6 +1062,7 @@ def run_render_clip_job(
                         captions_lines=captions_lines,
                         mp4_preset=mp4_preset or "ultrafast",
                         mp4_crf=int(mp4_crf) if mp4_crf is not None else 28,
+                        captions_template_id=captions_template_id,
                     )
                 else:
                     from tempfile import TemporaryDirectory
@@ -1079,6 +1081,7 @@ def run_render_clip_job(
                             captions_lines=captions_lines,
                             mp4_preset=mp4_preset or "ultrafast",
                             mp4_crf=int(mp4_crf) if mp4_crf is not None else 28,
+                            captions_template_id=captions_template_id,
                         )
                         backend.put_file(
                             key=asset_key, path=tmp_path, content_type="video/mp4"
@@ -1095,6 +1098,7 @@ def run_render_clip_job(
                         out_path=out_path,
                         aspect=aspect,  # type: ignore[arg-type]
                         captions_lines=captions_lines,
+                        captions_template_id=captions_template_id,
                     )
                 else:
                     from tempfile import TemporaryDirectory
@@ -1111,6 +1115,7 @@ def run_render_clip_job(
                             out_path=tmp_path,
                             aspect=aspect,  # type: ignore[arg-type]
                             captions_lines=captions_lines,
+                            captions_template_id=captions_template_id,
                         )
                         backend.put_file(
                             key=asset_key, path=tmp_path, content_type="video/webm"

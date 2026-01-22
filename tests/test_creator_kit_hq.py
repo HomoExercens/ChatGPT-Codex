@@ -4,7 +4,7 @@ import orjson
 
 
 def test_cache_key_render_profile_changes_hash() -> None:
-    from neuroleague_api.clip_render import cache_key
+    from neuroleague_api.clip_render import CAPTIONS_VERSION, cache_key
 
     base = cache_key(
         replay_digest="d" * 12,
@@ -15,7 +15,7 @@ def test_cache_key_render_profile_changes_hash() -> None:
         scale=1,
         theme="dark",
         aspect="9:16",
-        captions_version="capv5",
+        captions_version=CAPTIONS_VERSION,
         captions_template_id="A",
     )
     hq = cache_key(
@@ -27,7 +27,7 @@ def test_cache_key_render_profile_changes_hash() -> None:
         scale=2,
         theme="dark",
         aspect="9:16",
-        captions_version="capv5",
+        captions_version=CAPTIONS_VERSION,
         captions_template_id="A",
         render_profile="creator_kit_hq:kitv2",
     )

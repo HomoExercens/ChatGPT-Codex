@@ -128,4 +128,4 @@ def test_captions_plan_forced_template_id_overrides_event_type() -> None:
         template_id="A",
     )
     assert plan.template_id == "A"
-    assert plan.lines[:2] == ["BEAT THIS", "HP Swing"]
+    assert plan.lines[:2] == ["PORTAL CLOCKWORK", "HP Swing"]
