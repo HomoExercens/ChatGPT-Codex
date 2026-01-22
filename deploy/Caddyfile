@@ -1,0 +1,15 @@
+{
+  email {$CADDY_EMAIL}
+}
+
+{$DEPLOY_DOMAIN:localhost} {
+  encode gzip
+
+  @api path /api/* /docs* /openapi* /redoc*
+  reverse_proxy @api api:8000
+
+  @share path /s/*
+  reverse_proxy @share api:8000
+
+  reverse_proxy web:80
+}

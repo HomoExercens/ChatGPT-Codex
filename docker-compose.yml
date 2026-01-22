@@ -1,0 +1,24 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    environment:
+      NEUROLEAGUE_DB_URL: sqlite:////app/artifacts/neuroleague.db
+      NEUROLEAGUE_ARTIFACTS_DIR: /app/artifacts
+      CUDA_VISIBLE_DEVICES: ""
+    volumes:
+      - ./artifacts:/app/artifacts
+    ports:
+      - "8000:8000"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      NEUROLEAGUE_API_PROXY_TARGET: http://api:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api

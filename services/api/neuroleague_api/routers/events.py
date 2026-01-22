@@ -1,0 +1,179 @@
+from __future__ import annotations
+
+import hashlib
+from typing import Any, Literal
+from urllib.parse import parse_qs, urlparse
+
+from fastapi import APIRouter, Request
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from neuroleague_api.core.config import Settings
+from neuroleague_api.deps import CurrentUserId, DBSession
+from neuroleague_api.eventlog import ip_hash_from_request, user_agent_hash_from_request
+from neuroleague_api.eventlog import log_event
+from neuroleague_api.rate_limit import check_rate_limit_dual
+
+router = APIRouter(prefix="/api/events", tags=["events"])
+
+
+EventType = Literal[
+    # Growth funnel.
+    "share_open",
+    "qr_shown",
+    "qr_scanned_click",
+    "start_click",
+    "caption_copied",
+    "bestclip_downloaded",
+    "guest_start_success",
+    "first_match_queued",
+    "first_match_done",
+    "first_replay_open",
+    "replay_open",
+    "blueprint_fork",
+    "blueprint_submit",
+    "ranked_queue",
+    "ranked_done",
+    "tournament_queue",
+    "tournament_done",
+    # Clips.
+    "clip_view",
+    "clip_like",
+    "clip_share",
+    "clip_remix_click",
+    "clip_open_ranked",
+    "clip_completion",
+    # Experiments.
+    "experiment_exposed",
+    "experiment_converted",
+    # Demo mode.
+    "demo_run_start",
+    "demo_run_done",
+    "demo_kit_download",
+    "demo_beat_this_click",
+    # Steam demo conversion.
+    "wishlist_click",
+    "discord_click",
+    # Android wrapper.
+    "app_open_deeplink",
+]
+
+
+class TrackEventRequest(BaseModel):
+    type: EventType
+    source: str | None = Field(default=None, max_length=64)
+    ref: str | None = Field(default=None, max_length=80)
+    utm: dict[str, str] = Field(default_factory=dict)
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class TrackEventResponse(BaseModel):
+    ok: bool = True
+
+
+class TrackPublicEventRequest(BaseModel):
+    type: Literal["app_open_deeplink"]
+    url: str = Field(..., max_length=4096)
+    source: str | None = Field(default=None, max_length=64)
+    ref: str | None = Field(default=None, max_length=80)
+    utm: dict[str, str] = Field(default_factory=dict)
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("", response_model=TrackEventResponse, include_in_schema=False)
+def track_public(
+    req: TrackPublicEventRequest,
+    request: Request,
+    db: Session = DBSession,
+) -> TrackEventResponse:
+    settings = Settings()
+    anon_seed = (
+        f"{ip_hash_from_request(request) or ''}|{user_agent_hash_from_request(request) or ''}"
+    )
+    anon_id = hashlib.sha256(anon_seed.encode("utf-8")).hexdigest()
+    check_rate_limit_dual(
+        user_id=f"anon:{anon_id[:48]}",
+        request=request,
+        action="events_track_public",
+        per_minute_user=int(settings.rate_limit_events_track_per_minute),
+        per_hour_user=int(settings.rate_limit_events_track_per_hour),
+        per_minute_ip=int(settings.rate_limit_events_track_per_minute_ip),
+        per_hour_ip=int(settings.rate_limit_events_track_per_hour_ip),
+        extra_detail={"type": req.type},
+    )
+
+    meta: dict[str, Any] = dict(req.meta or {})
+    deeplink_query: dict[str, str] = {}
+    try:
+        parsed = urlparse(str(req.url))
+        meta.setdefault("deeplink_scheme", str(parsed.scheme or "")[:32])
+        meta.setdefault("deeplink_host", str(parsed.netloc or "")[:160])
+        meta.setdefault("deeplink_path", str(parsed.path or "")[:800])
+        if parsed.query:
+            q = parse_qs(parsed.query, keep_blank_values=False)
+            deeplink_query = {
+                str(k)[:64]: str((v[0] if v else "") or "")[:200]
+                for k, v in q.items()
+            }
+            meta.setdefault("deeplink_query", deeplink_query)
+    except Exception:  # noqa: BLE001
+        pass
+
+    variants: dict[str, str] = {}
+    lenv = str(deeplink_query.get("lenv") or "").strip()
+    if lenv:
+        variants["clip_len_v1"] = lenv[:16]
+    ctpl = str(deeplink_query.get("ctpl") or "").strip()
+    if ctpl:
+        variants["captions_v2"] = ctpl[:64]
+    cv = str(deeplink_query.get("cv") or "").strip()
+
+    payload: dict[str, Any] = {
+        "source": req.source,
+        "ref": req.ref,
+        "utm": req.utm,
+        "meta": meta,
+        "url": req.url,
+        "variants": variants,
+        "captions_version": cv[:32] if cv else None,
+    }
+    log_event(db, type=req.type, user_id=None, request=request, payload=payload)
+    db.commit()
+    return TrackEventResponse(ok=True)
+
+
+@router.post("/track", response_model=TrackEventResponse)
+def track(
+    req: TrackEventRequest,
+    request: Request,
+    user_id: str = CurrentUserId,
+    db: Session = DBSession,
+) -> TrackEventResponse:
+    # Keep a soft rate limit even in dev: events can be spammed accidentally.
+    settings = Settings()
+    check_rate_limit_dual(
+        user_id=user_id,
+        request=request,
+        action="events_track",
+        per_minute_user=int(settings.rate_limit_events_track_per_minute),
+        per_hour_user=int(settings.rate_limit_events_track_per_hour),
+        per_minute_ip=int(settings.rate_limit_events_track_per_minute_ip),
+        per_hour_ip=int(settings.rate_limit_events_track_per_hour_ip),
+        extra_detail={"type": req.type},
+    )
+
+    payload: dict[str, Any] = {
+        "source": req.source,
+        "ref": req.ref,
+        "utm": req.utm,
+        "meta": req.meta,
+    }
+    ev = log_event(db, type=req.type, user_id=user_id, request=request, payload=payload)
+    try:
+        from neuroleague_api.quests_engine import apply_event_to_quests
+
+        apply_event_to_quests(db, event=ev)
+    except Exception:  # noqa: BLE001
+        pass
+    db.commit()
+    return TrackEventResponse(ok=True)

@@ -1,0 +1,5 @@
+{
+  "name": "NeuroLeague: AI Tactics",
+  "description": "A high-fidelity UI prototype for an AI auto-battle strategy game featuring reinforcement learning training, team building, and deep meta-analysis.",
+  "requestFramePermissions": []
+}

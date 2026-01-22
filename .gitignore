@@ -1,0 +1,72 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+build/
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Artifacts (generated)
+artifacts/**
+!artifacts/
+!artifacts/handoff/
+!artifacts/handoff/git 업로드 전 확인.txt
+
+# Env files (local)
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Secrets / credentials (never commit)
+github.txt
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+credentials*
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+*.sqlite
+*.sqlite3
+*.db
+
+# Bundles
+*.zip
+
+# E2E screenshots
+docs/screenshots/*.png
+
+# Playwright artifacts
+apps/web/test-results/
+apps/web/playwright-report/

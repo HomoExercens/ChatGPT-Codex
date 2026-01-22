@@ -1,0 +1,1191 @@
+{
+  "augments": [
+    {
+      "category": "synergy",
+      "description": "Beast synergy count +1 once online (base 2+).",
+      "id": "aug_t1_beast_emblem",
+      "name": "Beast Emblem",
+      "rules_json": {
+        "synergy_bonus": {
+          "Beast": 1
+        }
+      },
+      "tags": [
+        "synergy:beast"
+      ],
+      "tier": 1
+    },
+    {
+      "category": "synergy",
+      "description": "Fire synergy count +1 once online (base 2+).",
+      "id": "aug_t1_fire_emblem",
+      "name": "Fire Emblem",
+      "rules_json": {
+        "synergy_bonus": {
+          "Fire": 1
+        }
+      },
+      "tags": [
+        "synergy:fire"
+      ],
+      "tier": 1
+    },
+    {
+      "category": "synergy",
+      "description": "Knight synergy count +1 once online (base 2+).",
+      "id": "aug_t1_knight_emblem",
+      "name": "Knight Emblem",
+      "rules_json": {
+        "synergy_bonus": {
+          "Knight": 1
+        }
+      },
+      "tags": [
+        "synergy:knight"
+      ],
+      "tier": 1
+    },
+    {
+      "category": "synergy",
+      "description": "Mech synergy count +1 once online (base 2+).",
+      "id": "aug_t1_mech_emblem",
+      "name": "Mech Emblem",
+      "rules_json": {
+        "synergy_bonus": {
+          "Mech": 1
+        }
+      },
+      "tags": [
+        "synergy:mech"
+      ],
+      "tier": 1
+    },
+    {
+      "category": "combat",
+      "description": "Start combat with a small HP buffer.",
+      "id": "aug_t1_microshield",
+      "name": "Micro-Shield",
+      "rules_json": {
+        "combat_hp_permille": 50
+      },
+      "tags": [],
+      "tier": 1
+    },
+    {
+      "category": "synergy",
+      "description": "Mystic synergy count +1 once online (base 2+).",
+      "id": "aug_t1_mystic_emblem",
+      "name": "Mystic Emblem",
+      "rules_json": {
+        "synergy_bonus": {
+          "Mystic": 1
+        }
+      },
+      "tags": [
+        "synergy:mystic"
+      ],
+      "tier": 1
+    },
+    {
+      "category": "combat",
+      "description": "Slightly more damage reduction.",
+      "id": "aug_t1_plating",
+      "name": "Light Plating",
+      "rules_json": {
+        "combat_damage_reduction_permille": 40
+      },
+      "tags": [],
+      "tier": 1
+    },
+    {
+      "category": "combat",
+      "description": "Slightly faster attacks.",
+      "id": "aug_t1_quick_servos",
+      "name": "Quick Servos",
+      "rules_json": {
+        "combat_speed_permille": 60
+      },
+      "tags": [],
+      "tier": 1
+    },
+    {
+      "category": "combat",
+      "description": "Slightly higher damage output.",
+      "id": "aug_t1_sharp_edges",
+      "name": "Sharp Edges",
+      "rules_json": {
+        "combat_atk_permille": 50
+      },
+      "tags": [],
+      "tier": 1
+    },
+    {
+      "category": "combat",
+      "description": "Slightly higher crit chance.",
+      "id": "aug_t1_targeting_patch",
+      "name": "Targeting Patch",
+      "rules_json": {
+        "combat_crit_permille": 40
+      },
+      "tags": [],
+      "tier": 1
+    },
+    {
+      "category": "combat",
+      "description": "More damage reduction for the whole team.",
+      "id": "aug_t2_armor_matrix",
+      "name": "Armor Matrix",
+      "rules_json": {
+        "combat_damage_reduction_permille": 90
+      },
+      "tags": [],
+      "tier": 2
+    },
+    {
+      "category": "combat",
+      "description": "More damage for the whole team.",
+      "id": "aug_t2_brutality",
+      "name": "Brutality",
+      "rules_json": {
+        "combat_atk_permille": 120
+      },
+      "tags": [],
+      "tier": 2
+    },
+    {
+      "category": "combat",
+      "description": "First would-be death revives once per match.",
+      "id": "aug_t2_clutch_revive",
+      "name": "Clutch Revive",
+      "rules_json": {
+        "combat_revive_once": true
+      },
+      "tags": [
+        "revive"
+      ],
+      "tier": 2
+    },
+    {
+      "category": "combat",
+      "description": "More HP for the whole team.",
+      "id": "aug_t2_heavy_shields",
+      "name": "Heavy Shields",
+      "rules_json": {
+        "combat_hp_permille": 120
+      },
+      "tags": [],
+      "tier": 2
+    },
+    {
+      "category": "synergy",
+      "description": "Medic synergy count +1 once online (base 2+).",
+      "id": "aug_t2_medic_emblem",
+      "name": "Medic Emblem",
+      "rules_json": {
+        "synergy_bonus": {
+          "Medic": 1
+        }
+      },
+      "tags": [
+        "synergy:medic"
+      ],
+      "tier": 2
+    },
+    {
+      "category": "combat",
+      "description": "More attack speed for the whole team.",
+      "id": "aug_t2_overclock",
+      "name": "Overclock",
+      "rules_json": {
+        "combat_speed_permille": 140
+      },
+      "tags": [],
+      "tier": 2
+    },
+    {
+      "category": "combat",
+      "description": "More crit chance for the whole team.",
+      "id": "aug_t2_precision",
+      "name": "Precision",
+      "rules_json": {
+        "combat_crit_permille": 90
+      },
+      "tags": [],
+      "tier": 2
+    },
+    {
+      "category": "synergy",
+      "description": "Storm synergy count +1 once online (base 2+).",
+      "id": "aug_t2_storm_emblem",
+      "name": "Storm Emblem",
+      "rules_json": {
+        "synergy_bonus": {
+          "Storm": 1
+        }
+      },
+      "tags": [
+        "synergy:storm"
+      ],
+      "tier": 2
+    },
+    {
+      "category": "synergy",
+      "description": "Vine synergy count +1 once online (base 2+).",
+      "id": "aug_t2_vine_emblem",
+      "name": "Vine Emblem",
+      "rules_json": {
+        "synergy_bonus": {
+          "Vine": 1
+        }
+      },
+      "tags": [
+        "synergy:vine"
+      ],
+      "tier": 2
+    },
+    {
+      "category": "synergy",
+      "description": "Void synergy count +1 once online (base 2+).",
+      "id": "aug_t2_void_emblem",
+      "name": "Void Emblem",
+      "rules_json": {
+        "synergy_bonus": {
+          "Void": 1
+        }
+      },
+      "tags": [
+        "synergy:void"
+      ],
+      "tier": 2
+    },
+    {
+      "category": "synergy",
+      "description": "Mystic synergy count +2 once online (base 2+).",
+      "id": "aug_t3_arcane_emblem",
+      "name": "Arcane Emblem",
+      "rules_json": {
+        "synergy_bonus": {
+          "Mystic": 2
+        }
+      },
+      "tags": [
+        "synergy:mystic"
+      ],
+      "tier": 3
+    },
+    {
+      "category": "combat",
+      "description": "High damage + speed.",
+      "id": "aug_t3_double_down",
+      "name": "Double Down",
+      "rules_json": {
+        "combat_atk_permille": 140,
+        "combat_speed_permille": 180
+      },
+      "tags": [],
+      "tier": 3
+    },
+    {
+      "category": "combat",
+      "description": "Big damage + crit, but slightly lower defense.",
+      "id": "aug_t3_glass_cannon",
+      "name": "Glass Cannon",
+      "rules_json": {
+        "combat_atk_permille": 180,
+        "combat_crit_permille": 140,
+        "combat_damage_reduction_permille": -60
+      },
+      "tags": [],
+      "tier": 3
+    },
+    {
+      "category": "synergy",
+      "description": "Knight synergy count +2 once online (base 2+).",
+      "id": "aug_t3_guardian_emblem",
+      "name": "Guardian Emblem",
+      "rules_json": {
+        "synergy_bonus": {
+          "Knight": 2
+        }
+      },
+      "tags": [
+        "synergy:knight"
+      ],
+      "tier": 3
+    },
+    {
+      "category": "synergy",
+      "description": "Fire synergy count +2 once online (base 2+).",
+      "id": "aug_t3_inferno_emblem",
+      "name": "Inferno Emblem",
+      "rules_json": {
+        "synergy_bonus": {
+          "Fire": 2
+        }
+      },
+      "tags": [
+        "synergy:fire"
+      ],
+      "tier": 3
+    },
+    {
+      "category": "combat",
+      "description": "Very high damage reduction.",
+      "id": "aug_t3_iron_wall",
+      "name": "Iron Wall",
+      "rules_json": {
+        "combat_damage_reduction_permille": 220
+      },
+      "tags": [],
+      "tier": 3
+    },
+    {
+      "category": "combat",
+      "description": "Big HP + defense boost.",
+      "id": "aug_t3_last_stand",
+      "name": "Last Stand",
+      "rules_json": {
+        "combat_damage_reduction_permille": 120,
+        "combat_hp_permille": 180
+      },
+      "tags": [],
+      "tier": 3
+    },
+    {
+      "category": "combat",
+      "description": "Revive once per match and gain some crit chance.",
+      "id": "aug_t3_phoenix_protocol",
+      "name": "Phoenix Protocol",
+      "rules_json": {
+        "combat_crit_permille": 80,
+        "combat_revive_once": true
+      },
+      "tags": [
+        "revive"
+      ],
+      "tier": 3
+    },
+    {
+      "category": "combat",
+      "description": "Very fast attacks.",
+      "id": "aug_t3_rapid_fire",
+      "name": "Rapid Fire",
+      "rules_json": {
+        "combat_speed_permille": 240
+      },
+      "tags": [],
+      "tier": 3
+    },
+    {
+      "category": "synergy",
+      "description": "Void synergy count +2 once online (base 2+).",
+      "id": "aug_t3_void_emblem_plus",
+      "name": "Void Emblem+",
+      "rules_json": {
+        "synergy_bonus": {
+          "Void": 2
+        }
+      },
+      "tags": [
+        "synergy:void"
+      ],
+      "tier": 3
+    }
+  ],
+  "catalog": {
+    "creatures": [
+      {
+        "atk": 80,
+        "attack_interval_ticks": 40,
+        "heal_interval_ticks": null,
+        "id": "clockwork_golem",
+        "max_hp": 2000,
+        "name": "Clockwork Golem",
+        "range": "melee",
+        "rarity": 2,
+        "role": "Tank",
+        "tags": [
+          "Mech",
+          "Heavy"
+        ]
+      },
+      {
+        "atk": 110,
+        "attack_interval_ticks": 20,
+        "heal_interval_ticks": 40,
+        "id": "crystal_weaver",
+        "max_hp": 900,
+        "name": "Crystal Weaver",
+        "range": "ranged",
+        "rarity": 1,
+        "role": "Support",
+        "tags": [
+          "Crystal",
+          "Mystic"
+        ]
+      },
+      {
+        "atk": 180,
+        "attack_interval_ticks": 14,
+        "heal_interval_ticks": null,
+        "id": "ember_fox",
+        "max_hp": 600,
+        "name": "Ember Fox",
+        "range": "ranged",
+        "rarity": 1,
+        "role": "DPS",
+        "tags": [
+          "Beast",
+          "Fire"
+        ]
+      },
+      {
+        "atk": 90,
+        "attack_interval_ticks": 22,
+        "heal_interval_ticks": 35,
+        "id": "field_medic",
+        "max_hp": 850,
+        "name": "Field Medic",
+        "range": "ranged",
+        "rarity": 1,
+        "role": "Support",
+        "tags": [
+          "Medic",
+          "Mystic"
+        ]
+      },
+      {
+        "atk": 140,
+        "attack_interval_ticks": 18,
+        "heal_interval_ticks": null,
+        "id": "iron_striker",
+        "max_hp": 900,
+        "name": "Iron Striker",
+        "range": "melee",
+        "rarity": 1,
+        "role": "DPS",
+        "tags": [
+          "Mech",
+          "Knight"
+        ]
+      },
+      {
+        "atk": 105,
+        "attack_interval_ticks": 22,
+        "heal_interval_ticks": 30,
+        "id": "mist_sage",
+        "max_hp": 950,
+        "name": "Mist Sage",
+        "range": "ranged",
+        "rarity": 1,
+        "role": "Support",
+        "tags": [
+          "Mist",
+          "Mystic"
+        ]
+      },
+      {
+        "atk": 95,
+        "attack_interval_ticks": 20,
+        "heal_interval_ticks": 36,
+        "id": "scrap_artificer",
+        "max_hp": 820,
+        "name": "Scrap Artificer",
+        "range": "ranged",
+        "rarity": 1,
+        "role": "Support",
+        "tags": [
+          "Scrap",
+          "Mech"
+        ]
+      },
+      {
+        "atk": 50,
+        "attack_interval_ticks": 25,
+        "heal_interval_ticks": null,
+        "id": "slime_knight",
+        "max_hp": 1200,
+        "name": "Slime Knight",
+        "range": "melee",
+        "rarity": 1,
+        "role": "Tank",
+        "tags": [
+          "Gelatinous",
+          "Knight"
+        ]
+      },
+      {
+        "atk": 165,
+        "attack_interval_ticks": 15,
+        "heal_interval_ticks": null,
+        "id": "storm_hawk",
+        "max_hp": 650,
+        "name": "Storm Hawk",
+        "range": "ranged",
+        "rarity": 1,
+        "role": "DPS",
+        "tags": [
+          "Storm",
+          "Beast"
+        ]
+      },
+      {
+        "atk": 95,
+        "attack_interval_ticks": 28,
+        "heal_interval_ticks": null,
+        "id": "sun_paladin",
+        "max_hp": 1700,
+        "name": "Sun Paladin",
+        "range": "melee",
+        "rarity": 2,
+        "role": "Tank",
+        "tags": [
+          "Knight",
+          "Fire"
+        ]
+      },
+      {
+        "atk": 75,
+        "attack_interval_ticks": 26,
+        "heal_interval_ticks": null,
+        "id": "thornback_boar",
+        "max_hp": 1500,
+        "name": "Thornback Boar",
+        "range": "melee",
+        "rarity": 1,
+        "role": "Tank",
+        "tags": [
+          "Vine",
+          "Beast"
+        ]
+      },
+      {
+        "atk": 210,
+        "attack_interval_ticks": 19,
+        "heal_interval_ticks": null,
+        "id": "void_wisp",
+        "max_hp": 520,
+        "name": "Void Wisp",
+        "range": "ranged",
+        "rarity": 3,
+        "role": "DPS",
+        "tags": [
+          "Void",
+          "Mystic"
+        ]
+      }
+    ],
+    "items": [
+      {
+        "atk_permille": 0,
+        "badge_text": null,
+        "crit_permille": 30,
+        "damage_reduction_permille": 0,
+        "hp_permille": 0,
+        "id": "adrenaline_module",
+        "name": "Adrenaline Module",
+        "rarity": 2,
+        "slot": "utility",
+        "speed_permille": 200,
+        "synergy_bonus": {}
+      },
+      {
+        "atk_permille": 0,
+        "badge_text": "Beast +1",
+        "crit_permille": 0,
+        "damage_reduction_permille": 0,
+        "hp_permille": 0,
+        "id": "beast_sigil",
+        "name": "Beast Sigil",
+        "rarity": 2,
+        "slot": "utility",
+        "speed_permille": 0,
+        "synergy_bonus": {
+          "Beast": 1
+        }
+      },
+      {
+        "atk_permille": 0,
+        "badge_text": null,
+        "crit_permille": 0,
+        "damage_reduction_permille": 0,
+        "hp_permille": 0,
+        "id": "clockwork_core",
+        "name": "Clockwork Core",
+        "rarity": 1,
+        "slot": "utility",
+        "speed_permille": 120,
+        "synergy_bonus": {}
+      },
+      {
+        "atk_permille": 0,
+        "badge_text": null,
+        "crit_permille": 0,
+        "damage_reduction_permille": 120,
+        "hp_permille": 120,
+        "id": "coolant_shell",
+        "name": "Coolant Shell",
+        "rarity": 2,
+        "slot": "armor",
+        "speed_permille": 0,
+        "synergy_bonus": {}
+      },
+      {
+        "atk_permille": 80,
+        "badge_text": null,
+        "crit_permille": 140,
+        "damage_reduction_permille": 0,
+        "hp_permille": 0,
+        "id": "crystal_staff",
+        "name": "Crystal Staff",
+        "rarity": 2,
+        "slot": "weapon",
+        "speed_permille": 0,
+        "synergy_bonus": {}
+      },
+      {
+        "atk_permille": 200,
+        "badge_text": null,
+        "crit_permille": 0,
+        "damage_reduction_permille": 0,
+        "hp_permille": 0,
+        "id": "ember_blade",
+        "name": "Ember Blade",
+        "rarity": 2,
+        "slot": "weapon",
+        "speed_permille": 0,
+        "synergy_bonus": {}
+      },
+      {
+        "atk_permille": 0,
+        "badge_text": "Fire +2",
+        "crit_permille": 0,
+        "damage_reduction_permille": 0,
+        "hp_permille": 0,
+        "id": "fire_sigil",
+        "name": "Fire Sigil",
+        "rarity": 3,
+        "slot": "utility",
+        "speed_permille": 0,
+        "synergy_bonus": {
+          "Fire": 2
+        }
+      },
+      {
+        "atk_permille": 60,
+        "badge_text": null,
+        "crit_permille": 0,
+        "damage_reduction_permille": 0,
+        "hp_permille": 60,
+        "id": "healing_drones",
+        "name": "Healing Drones",
+        "rarity": 1,
+        "slot": "utility",
+        "speed_permille": 0,
+        "synergy_bonus": {}
+      },
+      {
+        "atk_permille": 100,
+        "badge_text": null,
+        "crit_permille": 0,
+        "damage_reduction_permille": 0,
+        "hp_permille": 0,
+        "id": "ion_repeater",
+        "name": "Ion Repeater",
+        "rarity": 1,
+        "slot": "weapon",
+        "speed_permille": 150,
+        "synergy_bonus": {}
+      },
+      {
+        "atk_permille": 0,
+        "badge_text": "Knight +1",
+        "crit_permille": 0,
+        "damage_reduction_permille": 0,
+        "hp_permille": 0,
+        "id": "knight_sigil",
+        "name": "Knight Sigil",
+        "rarity": 2,
+        "slot": "utility",
+        "speed_permille": 0,
+        "synergy_bonus": {
+          "Knight": 1
+        }
+      },
+      {
+        "atk_permille": 0,
+        "badge_text": "Mech +1",
+        "crit_permille": 0,
+        "damage_reduction_permille": 0,
+        "hp_permille": 0,
+        "id": "mech_sigil",
+        "name": "Mech Sigil",
+        "rarity": 2,
+        "slot": "utility",
+        "speed_permille": 0,
+        "synergy_bonus": {
+          "Mech": 1
+        }
+      },
+      {
+        "atk_permille": 0,
+        "badge_text": null,
+        "crit_permille": 0,
+        "damage_reduction_permille": 40,
+        "hp_permille": 100,
+        "id": "medic_vest",
+        "name": "Medic Vest",
+        "rarity": 1,
+        "slot": "armor",
+        "speed_permille": 0,
+        "synergy_bonus": {}
+      },
+      {
+        "atk_permille": 0,
+        "badge_text": "Mystic +1",
+        "crit_permille": 0,
+        "damage_reduction_permille": 0,
+        "hp_permille": 0,
+        "id": "mystic_sigil",
+        "name": "Mystic Sigil",
+        "rarity": 2,
+        "slot": "utility",
+        "speed_permille": 0,
+        "synergy_bonus": {
+          "Mystic": 1
+        }
+      },
+      {
+        "atk_permille": 0,
+        "badge_text": null,
+        "crit_permille": 0,
+        "damage_reduction_permille": 120,
+        "hp_permille": 0,
+        "id": "nanofiber_cloak",
+        "name": "Nanofiber Cloak",
+        "rarity": 1,
+        "slot": "armor",
+        "speed_permille": 0,
+        "synergy_bonus": {}
+      },
+      {
+        "atk_permille": 0,
+        "badge_text": null,
+        "crit_permille": 0,
+        "damage_reduction_permille": 0,
+        "hp_permille": 150,
+        "id": "phoenix_ash",
+        "name": "Phoenix Ash",
+        "rarity": 3,
+        "slot": "utility",
+        "speed_permille": 0,
+        "synergy_bonus": {}
+      },
+      {
+        "atk_permille": 150,
+        "badge_text": null,
+        "crit_permille": 50,
+        "damage_reduction_permille": 0,
+        "hp_permille": 0,
+        "id": "plasma_lance",
+        "name": "Plasma Lance",
+        "rarity": 2,
+        "slot": "weapon",
+        "speed_permille": 0,
+        "synergy_bonus": {}
+      },
+      {
+        "atk_permille": 0,
+        "badge_text": null,
+        "crit_permille": 0,
+        "damage_reduction_permille": 50,
+        "hp_permille": 200,
+        "id": "reinforced_plate",
+        "name": "Reinforced Plate",
+        "rarity": 2,
+        "slot": "armor",
+        "speed_permille": 0,
+        "synergy_bonus": {}
+      },
+      {
+        "atk_permille": 0,
+        "badge_text": null,
+        "crit_permille": 0,
+        "damage_reduction_permille": 180,
+        "hp_permille": 50,
+        "id": "runic_barrier",
+        "name": "Runic Barrier",
+        "rarity": 3,
+        "slot": "armor",
+        "speed_permille": 0,
+        "synergy_bonus": {}
+      },
+      {
+        "atk_permille": 0,
+        "badge_text": null,
+        "crit_permille": 50,
+        "damage_reduction_permille": 80,
+        "hp_permille": 0,
+        "id": "smoke_emitter",
+        "name": "Smoke Emitter",
+        "rarity": 2,
+        "slot": "utility",
+        "speed_permille": 0,
+        "synergy_bonus": {}
+      },
+      {
+        "atk_permille": 0,
+        "badge_text": null,
+        "crit_permille": 120,
+        "damage_reduction_permille": 0,
+        "hp_permille": 0,
+        "id": "targeting_array",
+        "name": "Targeting Array",
+        "rarity": 1,
+        "slot": "utility",
+        "speed_permille": 0,
+        "synergy_bonus": {}
+      },
+      {
+        "atk_permille": 0,
+        "badge_text": null,
+        "crit_permille": 0,
+        "damage_reduction_permille": 80,
+        "hp_permille": 150,
+        "id": "thorn_mail",
+        "name": "Thorn Mail",
+        "rarity": 2,
+        "slot": "armor",
+        "speed_permille": 0,
+        "synergy_bonus": {}
+      },
+      {
+        "atk_permille": 120,
+        "badge_text": null,
+        "crit_permille": 30,
+        "damage_reduction_permille": 0,
+        "hp_permille": 0,
+        "id": "thorn_spear",
+        "name": "Thorn Spear",
+        "rarity": 1,
+        "slot": "weapon",
+        "speed_permille": 0,
+        "synergy_bonus": {}
+      },
+      {
+        "atk_permille": 140,
+        "badge_text": null,
+        "crit_permille": 180,
+        "damage_reduction_permille": 0,
+        "hp_permille": 0,
+        "id": "void_dagger",
+        "name": "Void Dagger",
+        "rarity": 3,
+        "slot": "weapon",
+        "speed_permille": 0,
+        "synergy_bonus": {}
+      },
+      {
+        "atk_permille": 0,
+        "badge_text": "Void +2",
+        "crit_permille": 0,
+        "damage_reduction_permille": 0,
+        "hp_permille": 0,
+        "id": "void_sigil",
+        "name": "Void Sigil",
+        "rarity": 3,
+        "slot": "utility",
+        "speed_permille": 0,
+        "synergy_bonus": {
+          "Void": 2
+        }
+      }
+    ]
+  },
+  "cosmetics": [],
+  "created_at": "2026-01-18T11:08:21.082563+00:00",
+  "pack_hash": "1d6ca42240dbd9bc45175bbcc446eccb7e0ba27626ef4afdab39c569220d2d17",
+  "pack_version": "default/v1",
+  "portals": [
+    {
+      "description": "Level-ups are cheaper. In battle: attack speed is slightly higher.",
+      "id": "portal_fast_leveling",
+      "name": "Accelerated Research",
+      "rarity": 1,
+      "rules_json": {
+        "combat_speed_permille": 60,
+        "draft_levelup_cost_delta": -2,
+        "draft_levelup_cost_min": 1
+      },
+      "tags": [
+        "level"
+      ]
+    },
+    {
+      "description": "First reroll each round is free. In battle: crit chance is slightly higher.",
+      "id": "portal_free_reroll",
+      "name": "Free Reroll Protocol",
+      "rarity": 1,
+      "rules_json": {
+        "combat_crit_permille": 40,
+        "draft_free_reroll_per_round": 1
+      },
+      "tags": [
+        "reroll"
+      ]
+    },
+    {
+      "description": "Rarer offers appear. In battle: higher highs and lower lows (crit up, defense down).",
+      "id": "portal_high_variance",
+      "name": "High Variance Lab",
+      "rarity": 2,
+      "rules_json": {
+        "combat_crit_permille": 80,
+        "combat_damage_reduction_permille": -40,
+        "draft_rarity_bias": {
+          "r3_bonus": 0.1
+        }
+      },
+      "tags": [
+        "high_variance"
+      ]
+    },
+    {
+      "description": "Draft income is higher. In battle: sturdier frontline.",
+      "id": "portal_income_plus2",
+      "name": "Grant Funding",
+      "rarity": 1,
+      "rules_json": {
+        "combat_hp_permille": 60,
+        "draft_income_delta": 2
+      },
+      "tags": [
+        "econ"
+      ]
+    },
+    {
+      "description": "Draft shop feels bigger. In battle: slight damage pressure for faster rounds.",
+      "id": "portal_shop_plus1",
+      "name": "Expanded Lab Shop",
+      "rarity": 1,
+      "rules_json": {
+        "combat_atk_permille": 50,
+        "draft_shop_creature_slots_delta": 1,
+        "draft_shop_item_slots_delta": 1
+      },
+      "tags": [
+        "econ"
+      ]
+    },
+    {
+      "description": "Draft has fewer rounds. In battle: stronger opening burst.",
+      "id": "portal_short_rounds",
+      "name": "Compressed Schedule",
+      "rarity": 1,
+      "rules_json": {
+        "combat_atk_permille": 80,
+        "draft_rounds": 5
+      },
+      "tags": [
+        "viral"
+      ]
+    },
+    {
+      "description": "Sigils appear more often. In battle: synergy is easier to activate.",
+      "id": "portal_sigils_richer",
+      "name": "Sigil Overflow",
+      "rarity": 1,
+      "rules_json": {
+        "combat_synergy_bonus_all_online": 1,
+        "draft_sigil_bias": 1
+      },
+      "tags": [
+        "synergy"
+      ]
+    },
+    {
+      "description": "Spectator-first. Highlights favor synergy swings and clutch moments.",
+      "id": "portal_story_mode",
+      "name": "Story Mode",
+      "rarity": 1,
+      "rules_json": {
+        "highlight_weights": {
+          "damage_spike": 1.05,
+          "death": 0.95,
+          "hp_swing": 1.05,
+          "revive": 1.25,
+          "synergy": 1.35
+        }
+      },
+      "tags": [
+        "viral"
+      ]
+    }
+  ],
+  "ruleset_version": "2026S1-v1",
+  "synergies": {
+    "effects": {
+      "Beast": {
+        "2": {
+          "atk_permille": 100
+        },
+        "4": {
+          "atk_permille": 200
+        },
+        "6": {
+          "atk_permille": 300
+        }
+      },
+      "Crystal": {
+        "2": {
+          "crit_permille": 120
+        },
+        "4": {
+          "crit_permille": 240
+        },
+        "6": {
+          "crit_permille": 360
+        }
+      },
+      "Fire": {
+        "2": {
+          "atk_permille": 50
+        },
+        "4": {
+          "atk_permille": 100
+        },
+        "6": {
+          "atk_permille": 150
+        }
+      },
+      "Gelatinous": {
+        "2": {
+          "hp_permille": 150
+        },
+        "4": {
+          "hp_permille": 300
+        },
+        "6": {
+          "hp_permille": 450
+        }
+      },
+      "Heavy": {
+        "2": {
+          "damage_reduction_permille": 80
+        },
+        "4": {
+          "damage_reduction_permille": 160
+        },
+        "6": {
+          "damage_reduction_permille": 240
+        }
+      },
+      "Knight": {
+        "2": {
+          "hp_permille": 200
+        },
+        "4": {
+          "hp_permille": 400
+        },
+        "6": {
+          "hp_permille": 600
+        }
+      },
+      "Mech": {
+        "2": {
+          "damage_reduction_permille": 100
+        },
+        "4": {
+          "damage_reduction_permille": 200
+        },
+        "6": {
+          "damage_reduction_permille": 300
+        }
+      },
+      "Medic": {
+        "2": {
+          "atk_permille": 50,
+          "hp_permille": 100
+        },
+        "4": {
+          "atk_permille": 100,
+          "hp_permille": 200
+        },
+        "6": {
+          "atk_permille": 150,
+          "hp_permille": 300
+        }
+      },
+      "Mist": {
+        "2": {
+          "hp_permille": 120
+        },
+        "4": {
+          "hp_permille": 240
+        },
+        "6": {
+          "hp_permille": 360
+        }
+      },
+      "Mystic": {
+        "2": {
+          "crit_permille": 100
+        },
+        "4": {
+          "crit_permille": 200
+        },
+        "6": {
+          "crit_permille": 300
+        }
+      },
+      "Scrap": {
+        "2": {
+          "atk_permille": 60
+        },
+        "4": {
+          "atk_permille": 120
+        },
+        "6": {
+          "atk_permille": 180
+        }
+      },
+      "Storm": {
+        "2": {
+          "atk_permille": 80
+        },
+        "4": {
+          "atk_permille": 160
+        },
+        "6": {
+          "atk_permille": 240
+        }
+      },
+      "Vine": {
+        "2": {
+          "damage_reduction_permille": 80,
+          "hp_permille": 100
+        },
+        "4": {
+          "damage_reduction_permille": 160,
+          "hp_permille": 200
+        },
+        "6": {
+          "damage_reduction_permille": 240,
+          "hp_permille": 300
+        }
+      },
+      "Void": {
+        "2": {
+          "crit_permille": 200
+        },
+        "4": {
+          "crit_permille": 400
+        },
+        "6": {
+          "crit_permille": 600
+        }
+      }
+    }
+  },
+  "tuning": {}
+}

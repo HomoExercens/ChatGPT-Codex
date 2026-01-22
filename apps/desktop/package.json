@@ -1,0 +1,55 @@
+{
+  "name": "neuroleague-desktop",
+  "private": true,
+  "version": "0.0.0",
+  "main": "src/main.js",
+  "scripts": {
+    "dev": "electron .",
+    "build": "electron-builder --dir",
+    "dist": "electron-builder --publish never"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.neuroleague.desktop",
+    "productName": "NeuroLeague Demo",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../web/dist",
+        "to": "web"
+      },
+      {
+        "from": "../../services/api",
+        "to": "py/services/api"
+      },
+      {
+        "from": "../../packages/sim",
+        "to": "py/packages/sim"
+      },
+      {
+        "from": "../../packages/shared",
+        "to": "py/packages/shared"
+      },
+      {
+        "from": "../../packs",
+        "to": "py/packs"
+      },
+      {
+        "from": "python",
+        "to": "python"
+      }
+    ],
+    "win": {
+      "target": [
+        "zip"
+      ]
+    }
+  }
+}
+

@@ -1,0 +1,93 @@
+[문서] git 업로드 전 확인 (A안: main 직푸시 운영)
+
+A. 목적(왜 이걸 꼭 확인하나)
+- [ ] 이 프로젝트는 PR 없이 `main`에 “직접 커밋+푸시(직푸시)”로 운영한다.
+- [ ] 직푸시는 빠르지만, 리뷰/CI/보호장치가 약하면 “시크릿 유출·깨진 main·복구 어려움” 같은 사고가 커지기 쉽다.
+- [ ] 그래서 푸시 전 1~2분 점검으로 (1) 시크릿 유출 방지 (2) 품질 보장(테스트) (3) 히스토리 훼손 방지(강제푸시/삭제 금지) 를 최소 안전장치로 강제한다.
+
+B. 푸시 전 체크리스트(순서대로 / 체크 방법=명령어)
+0) 지금 내가 무엇을 어디로 올리는지 확인
+- [ ] 브랜치가 `main`인가: `git branch --show-current`
+- [ ] 원격(origin)이 맞나(HTTPS URL 확인): `git remote -v`
+- [ ] 작업트리 깨끗한가(의도치 않은 변경/파일 없음): `git status`
+
+1) 변경 내용 확인(“내가 지금 올릴 것”을 눈으로 본다)
+- [ ] 파일 단위 변화량: `git diff --stat`
+- [ ] 핵심 diff 훑기(길면 중요한 파일만): `git diff`
+- [ ] 최근 커밋 확인: `git log -n 5 --oneline --decorate`
+
+2) 최소 1개 테스트/빌드 실행(실패하면 푸시 금지)
+- [ ] (권장/기본) 빠른 테스트(네트워크 없음): `make test-fast`
+- [ ] `.venv`가 없으면(처음 1회) 준비: `make bootstrap` (네트워크로 의존성 다운로드 가능) 후 다시 `make test-fast`
+- [ ] (선택) 프론트 변경이 크면: `cd apps/web && npm run build` (node_modules 없으면 설치 필요)
+
+3) 시크릿 스캔(“의심되면 무조건 중단”)
+- [ ] 시크릿 파일명 자체가 포함됐는지(절대 커밋/푸시 금지): `.env`, `*.pem`, `*.key`, `*.p12`, `id_rsa`, `credentials*` 등
+- [ ] 코드/문서에 토큰 패턴이 보이면 즉시 중단(예: `ghp_...`, `github_pat_...`, `AKIA...`, `-----BEGIN ... PRIVATE KEY-----`)
+- [ ] 빠른 스캔(고신호): 아래 “E. 빠른 실행용 명령 묶음”의 스캔 명령 실행
+
+4) 푸시 직전 최종 확인
+- [ ] “절대” `--force`, `--force-with-lease` 사용 금지
+- [ ] `main` 삭제/리셋 금지(비정상 push는 중단하고 상황 보고 후 안전하게 정리)
+- [ ] 가능하면 `git push --dry-run`로 대상 확인(네트워크 접속 발생)
+
+C. 가장 위험한 사고 Top 5 (징후/예방/사고 후 대응)
+1) 시크릿(키/토큰/비밀번호/쿠키/인증정보) 유출  ← 최우선
+- 징후: diff/로그에 토큰 문자열, `.env`/키파일이 staged, GitHub push protection 차단/경고, 외부 서비스에서 “새 로그인/이상 사용량”
+- 예방: (1) 시크릿 파일은 `.gitignore`로 차단 (2) 푸시 전 시크릿 스캔 (3) GitHub Secret scanning + Push protection 활성화 (4) PAT는 fine-grained + 최소 권한
+- 사고 후 대응(중요): “삭제 커밋”으로 해결되지 않는다.
+  - [ ] 즉시 해당 키/토큰 폐기(rotate/revoke) + 관련 세션/쿠키 무효화
+  - [ ] 유출 범위 파악(어떤 repo/커밋/로그/CI에 노출됐는지)
+  - [ ] (필요 시) `git filter-repo` 등으로 히스토리에서 제거 + 새 키로 교체 (그래도 ‘이미 노출’ 가정)
+  - [ ] GitHub Secret scanning 알림/보안 로그 확인, 영향 서비스(클라우드/결제/Slack 등) 대응
+
+2) 강제푸시/리셋으로 히스토리 훼손(main 손상)
+- 징후: push 로그에 “forced update”, non-fast-forward 관련 메시지, 특정 커밋이 사라짐
+- 예방: (1) 로컬/에이전트 규칙: force push 금지 (2) GitHub branch protection: force push/삭제 금지
+- 사고 후 대응: [ ] 즉시 중단 → [ ] GitHub에서 브랜치 복구(가능하면 “Restore branch”) → [ ] reflog로 로컬 복구 경로 확인 → [ ] 안전한 방식으로 정렬(필요 시 `pull --rebase`)
+
+3) 깨진 main(테스트 실패/빌드 실패/배포 장애)
+- 징후: 테스트 실패, 런타임 에러, 배포/서비스 장애, 핫픽스 연쇄
+- 예방: [ ] 푸시 전 최소 1개 테스트/빌드 통과 [ ] 변경을 작게 쪼개기 [ ] 가능하면 CI required checks 켜기
+- 사고 후 대응: [ ] 즉시 `git revert`로 되돌리기(히스토리 보존) → [ ] 원인 수정 후 재푸시
+
+4) 대용량/생성물/DB/로그 파일 실수로 커밋(레포 비대화/유출 가능)
+- 징후: `git diff --stat`가 비정상적으로 큼, `.db`/로그/zip/빌드 산출물 포함
+- 예방: [ ] `.gitignore` 강화 [ ] `git status`에서 파일명 확인 [ ] 큰 파일은 별도 저장소/아티팩트로 분리
+- 사고 후 대응: [ ] 커밋 되돌리기 + 재발 방지 ignore 추가 → [ ] 이미 히스토리에 들어갔으면 filter-repo 검토
+
+5) 공급망/의존성 위험(악성 패키지/잠금파일 변경/스크립트 주입)
+- 징후: `requirements.txt`, `package*.json`, lockfile 변경, postinstall 스크립트 추가, 알 수 없는 다운로드/실행
+- 예방: [ ] 의존성 변경은 diff를 특히 꼼꼼히 [ ] Dependabot alerts/updates 활성화 [ ] 최소 권한 토큰/키 사용
+- 사고 후 대응: [ ] 의심 커밋 revert → [ ] 토큰/키 노출 가능성 점검 및 회전 → [ ] 감사(audit) 및 재발 방지
+
+D. Codex(에이전트)가 지켜야 할 금지 규칙(절대 하면 안 되는 것)
+- [ ] `git push --force` / `--force-with-lease` 절대 금지
+- [ ] `main` 브랜치 삭제/리셋/역사 덮어쓰기 절대 금지
+- [ ] 시크릿(키/토큰/비밀번호/쿠키/인증정보) 의심 시 “즉시 중단 + 보고” (억지로 진행 금지)
+- [ ] `.env`, `*.pem`, `*.key`, `credentials*`, `id_rsa` 등 시크릿 파일 커밋/푸시 금지
+- [ ] 파괴적 명령 금지: `rm -rf`, `git clean -fdx` 등
+- [ ] 에이전트/LLM 출력은 “그대로 실행”하지 말고, 명령/변경 내용을 짧게 검증한 뒤 진행
+- [ ] 네트워크/외부 접근 작업(패키지 설치/원격 설정/푸시 등)은 “무엇을 왜 하는지 1줄로 알린 뒤” 실행
+
+E. 빠른 실행용 명령 묶음(복붙용 / 파괴적 명령 없음)
+# 1) 상태/대상 확인
+git branch --show-current
+git remote -v
+git status
+
+# 2) 변경 내용 확인
+git diff --stat
+git diff
+git log -n 5 --oneline --decorate
+
+# 3) 테스트(최소 1개)
+make test-fast
+
+# 4) 시크릿 스캔(고신호: 토큰/키/프라이빗키 블록)
+pattern='(ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|sk_live_[0-9a-zA-Z]{10,}|AIza[0-9A-Za-z\\-_]{35}|eyJ[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]{20,}|^\\s*-----BEGIN [A-Z0-9 ]*PRIVATE KEY( BLOCK)?-----)'
+git ls-files -z | xargs -0 rg -n --no-messages "$pattern" || true
+
+# 5) 푸시(네트워크 접속 발생 / force 금지)
+# git push --dry-run origin main
+# git push -u origin main

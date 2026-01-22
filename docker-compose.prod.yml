@@ -1,0 +1,130 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-neuroleague}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-neuroleague}
+      POSTGRES_DB: ${POSTGRES_DB:-neuroleague}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio12345}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "sh", "-lc", "wget -qO- http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio_init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio12345}
+      MINIO_BUCKET: ${MINIO_BUCKET:-neuroleague}
+    entrypoint: ["/bin/sh", "-lc"]
+    command: |
+      mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}";
+      mc mb -p "local/$${MINIO_BUCKET}" || true;
+      mc anonymous set download "local/$${MINIO_BUCKET}" || true;
+      exit 0;
+
+  rayhead:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    command: ["bash", "-lc", "ray start --head --port=6379 --dashboard-host=0.0.0.0 --dashboard-port=8265 --block"]
+    environment:
+      CUDA_VISIBLE_DEVICES: ""
+    ports:
+      - "8265:8265"
+
+  worker:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    command: ["bash", "-lc", "ray start --address=rayhead:6379 --block"]
+    depends_on:
+      db:
+        condition: service_healthy
+      minio_init:
+        condition: service_completed_successfully
+      rayhead:
+        condition: service_started
+    environment:
+      CUDA_VISIBLE_DEVICES: ""
+      NEUROLEAGUE_DB_URL: postgresql+psycopg://${POSTGRES_USER:-neuroleague}:${POSTGRES_PASSWORD:-neuroleague}@db:5432/${POSTGRES_DB:-neuroleague}
+      NEUROLEAGUE_ARTIFACTS_DIR: /app/artifacts
+      NEUROLEAGUE_STORAGE_BACKEND: s3
+      NEUROLEAGUE_STORAGE_S3_BUCKET: ${MINIO_BUCKET:-neuroleague}
+      NEUROLEAGUE_STORAGE_S3_REGION: us-east-1
+      NEUROLEAGUE_STORAGE_S3_ENDPOINT_URL: http://minio:9000
+      NEUROLEAGUE_STORAGE_CDN_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}/api/assets
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minio12345}
+
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      minio_init:
+        condition: service_completed_successfully
+      rayhead:
+        condition: service_started
+      worker:
+        condition: service_started
+    environment:
+      CUDA_VISIBLE_DEVICES: ""
+      NEUROLEAGUE_PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      NEUROLEAGUE_TRUST_PROXY_HEADERS: "true"
+      NEUROLEAGUE_ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,testserver}
+      NEUROLEAGUE_CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8080}
+      NEUROLEAGUE_DB_URL: postgresql+psycopg://${POSTGRES_USER:-neuroleague}:${POSTGRES_PASSWORD:-neuroleague}@db:5432/${POSTGRES_DB:-neuroleague}
+      NEUROLEAGUE_ARTIFACTS_DIR: /app/artifacts
+      NEUROLEAGUE_STORAGE_BACKEND: s3
+      NEUROLEAGUE_STORAGE_S3_BUCKET: ${MINIO_BUCKET:-neuroleague}
+      NEUROLEAGUE_STORAGE_S3_REGION: us-east-1
+      NEUROLEAGUE_STORAGE_S3_ENDPOINT_URL: http://minio:9000
+      NEUROLEAGUE_STORAGE_CDN_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}/api/assets
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minio12345}
+      NEUROLEAGUE_RAY_ADDRESS: rayhead:6379
+      NEUROLEAGUE_ADMIN_TOKEN: ${ADMIN_TOKEN:-dev-admin-token}
+    volumes:
+      - ./artifacts:/app/artifacts
+    ports:
+      - "8000:8000"
+    command: ["bash", "-lc", "mkdir -p /app/artifacts && alembic -c /app/services/api/alembic.ini upgrade head && python /app/scripts/seed_data.py --reset && uvicorn neuroleague_api.main:app --host 0.0.0.0 --port 8000"]
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile.prod
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+
+volumes:
+  pgdata:
+  minio_data:
