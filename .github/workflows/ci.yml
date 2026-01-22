@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run unit tests
+        run: make test
+
+  deploy-smoke-compose:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Boot deploy compose
+        run: docker compose -f docker-compose.deploy.yml --env-file .env.deploy.ci.example up -d --build
+
+      - name: Wait for /api/ready
+        run: |
+          set -euo pipefail
+          : > wait-ready.log
+          for i in {1..60}; do
+            code="$(curl -sS -o /dev/null -w '%{http_code}' http://localhost/api/ready || echo 000)"
+            if [[ "${code}" == "200" ]]; then
+              echo "ready"
+              echo "ready" >> wait-ready.log
+              exit 0
+            fi
+            echo "waiting (${i}) code=${code}"
+            echo "waiting (${i}) code=${code}" >> wait-ready.log
+            sleep 2
+          done
+          docker compose -f docker-compose.deploy.yml --env-file .env.deploy.ci.example ps | tee docker-compose-ps.txt
+          docker compose -f docker-compose.deploy.yml --env-file .env.deploy.ci.example logs --no-color --tail=300 | tee docker-compose-logs-tail.txt
+          exit 1
+
+      - name: Deploy smoke (extended)
+        env:
+          NEUROLEAGUE_PUBLIC_BASE_URL: http://localhost
+          NEUROLEAGUE_ADMIN_TOKEN: ci-admin-token
+          DEPLOY_SMOKE_EXTENDED: "1"
+        run: |
+          set -euo pipefail
+          make deploy-smoke | tee deploy-smoke.log
+
+      - name: Collect diagnostics
+        if: failure()
+        run: |
+          set +e
+          docker compose -f docker-compose.deploy.yml --env-file .env.deploy.ci.example ps
+          docker compose -f docker-compose.deploy.yml --env-file .env.deploy.ci.example ps > docker-compose-ps.txt || true
+          docker compose -f docker-compose.deploy.yml --env-file .env.deploy.ci.example logs --no-color > docker-compose-logs.txt || true
+          bash scripts/vps_rehearsal_check.sh http://localhost ci-admin-token > vps-rehearsal-check.txt 2>&1 || true
+          {
+            echo "# /api/health"
+            curl -sS -i http://localhost/api/health || true
+            echo
+            echo "# /api/ready"
+            curl -sS -i http://localhost/api/ready || true
+            echo
+            echo "# /api/assets/ops/demo_ids.json"
+            curl -sS -i http://localhost/api/assets/ops/demo_ids.json || true
+            echo
+            echo "# /s/qr.png?next=/home (headers)"
+            curl -sS -i "http://localhost/s/qr.png?next=%2Fhome&src=ci_diag&scale=6" || true
+            echo
+            echo "# /api/assets/neuroleague.db (allowlist should 404)"
+            curl -sS -i "http://localhost/api/assets/neuroleague.db" || true
+
+            RID="$(curl -sS http://localhost/api/assets/ops/demo_ids.json 2>/dev/null | python3 -c 'import sys,json; print((json.load(sys.stdin) or {}).get(\"clip_replay_id\") or \"\")' 2>/dev/null || true)"
+            if [[ -n "${RID}" ]]; then
+              echo
+              echo "# /s/clip/{replay_id} (HEAD)"
+              curl -sS -I "http://localhost/s/clip/${RID}?start=0&end=12&v=1" || true
+              echo
+              echo "# /s/clip/{replay_id}/video.mp4 (HEAD)"
+              curl -sS -I "http://localhost/s/clip/${RID}/video.mp4?start=0&end=12&fps=12&scale=1&theme=dark&aspect=9:16&captions=1" || true
+            fi
+          } > curl-diagnostics.txt
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-smoke-diagnostics
+          if-no-files-found: warn
+          path: |
+            wait-ready.log
+            deploy-smoke.log
+            vps-rehearsal-check.txt
+            curl-diagnostics.txt
+            docker-compose-ps.txt
+            docker-compose-logs.txt
+            docker-compose-logs-tail.txt
+
+      - name: Shutdown deploy compose
+        if: always()
+        run: docker compose -f docker-compose.deploy.yml --env-file .env.deploy.ci.example down -v --remove-orphans
+
+  e2e-fast:
+    if: github.event_name == 'push'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run E2E (FAST)
+        env:
+          NEUROLEAGUE_E2E_FAST: "1"
+          NEUROLEAGUE_ADMIN_TOKEN: "admintest"
+        run: make e2e

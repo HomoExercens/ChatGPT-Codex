@@ -1,0 +1,85 @@
+name: build-desktop-windows
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - "apps/desktop/**"
+      - "apps/web/**"
+      - "services/api/**"
+      - "packages/**"
+      - "packs/**"
+      - "requirements-desktop.txt"
+      - ".github/workflows/build-desktop-windows.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build web (apps/web)
+        shell: bash
+        run: |
+          cd apps/web
+          npm ci
+          npm run build
+
+      - name: Install desktop deps (apps/desktop)
+        shell: bash
+        run: |
+          cd apps/desktop
+          npm ci
+
+      - name: Prepare embedded Python + deps (apps/desktop/python)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $pyVersion = "3.12.6"
+          $zipUrl = "https://www.python.org/ftp/python/$pyVersion/python-$pyVersion-embed-amd64.zip"
+          $desktopDir = Join-Path $PWD "apps/desktop"
+          $pyDir = Join-Path $desktopDir "python"
+
+          if (Test-Path $pyDir) { Remove-Item -Recurse -Force $pyDir }
+          New-Item -ItemType Directory -Force -Path $pyDir | Out-Null
+
+          Write-Host "Downloading: $zipUrl"
+          Invoke-WebRequest -Uri $zipUrl -OutFile (Join-Path $pyDir "python-embed.zip")
+          Expand-Archive -Force -Path (Join-Path $pyDir "python-embed.zip") -DestinationPath $pyDir
+          Remove-Item -Force (Join-Path $pyDir "python-embed.zip")
+
+          # Enable site-packages (required for pip installs).
+          $pth = Join-Path $pyDir "python312._pth"
+          if (Test-Path $pth) {
+            (Get-Content $pth) -replace '^#import site','import site' | Set-Content -Encoding ASCII $pth
+          }
+
+          # Install pip.
+          Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile (Join-Path $pyDir "get-pip.py")
+          & (Join-Path $pyDir "python.exe") (Join-Path $pyDir "get-pip.py")
+
+          # Install minimal desktop requirements into the embedded Python.
+          & (Join-Path $pyDir "python.exe") -m pip install -r (Join-Path $PWD "requirements-desktop.txt") --no-warn-script-location
+
+      - name: Package desktop app (zip)
+        shell: bash
+        run: |
+          cd apps/desktop
+          npm run dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: neuroleague-desktop-windows
+          path: |
+            apps/desktop/dist/*.zip
+            apps/desktop/dist/*.exe
+
