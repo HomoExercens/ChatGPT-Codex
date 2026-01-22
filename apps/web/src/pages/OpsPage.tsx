@@ -53,6 +53,7 @@ type ShortsVariantsOut = {
   range: string;
   start_date: string;
   end_date: string;
+  primary_kpi: string;
   filters: { utm_source?: string | null; utm_medium?: string | null; utm_campaign?: string | null };
   available_channels: string[];
   groups: Array<{
@@ -66,6 +67,7 @@ type ShortsVariantsOut = {
         completion_rate: number;
         share_rate: number;
         start_click_rate: number;
+        primary_kpi_rate: number;
         ranked_done_rate: number;
         app_open_deeplink_rate: number;
       }>;
@@ -79,6 +81,7 @@ type ShortsVariantsOut = {
       completion_rate: number;
       share_rate: number;
       start_click_rate: number;
+      primary_kpi_rate: number;
       ranked_done_rate: number;
       app_open_deeplink_rate: number;
     }>;
@@ -805,6 +808,9 @@ export const OpsPage: React.FC = () => {
                       {shortsVariants.start_date} → {shortsVariants.end_date}
                     </div>
                   </div>
+                  <div className="mt-1 text-[11px] text-slate-500">
+                    Primary KPI: ranked_done / share_open
+                  </div>
                   <div className="mt-2 space-y-3">
                     {shortsVariants.tables.map((tbl) => (
                       <div key={`all_${tbl.key}`} className="overflow-x-auto">
@@ -814,10 +820,10 @@ export const OpsPage: React.FC = () => {
                             <tr className="text-left text-slate-500">
                               <th className="py-1 pr-3">variant</th>
                               <th className="py-1 pr-3">n</th>
+                              <th className="py-1 pr-3">kpi%</th>
                               <th className="py-1 pr-3">completion%</th>
                               <th className="py-1 pr-3">share%</th>
                               <th className="py-1 pr-3">start_click%</th>
-                              <th className="py-1 pr-3">ranked_done%</th>
                               <th className="py-1">app_open%</th>
                             </tr>
                           </thead>
@@ -826,10 +832,10 @@ export const OpsPage: React.FC = () => {
                               <tr key={v.id} className="border-t border-slate-100 text-slate-700">
                                 <td className="py-1 pr-3 font-mono font-semibold">{v.id}</td>
                                 <td className="py-1 pr-3">{v.n}</td>
+                                <td className="py-1 pr-3 font-semibold">{(v.primary_kpi_rate * 100).toFixed(1)}%</td>
                                 <td className="py-1 pr-3">{(v.completion_rate * 100).toFixed(1)}%</td>
                                 <td className="py-1 pr-3">{(v.share_rate * 100).toFixed(1)}%</td>
                                 <td className="py-1 pr-3">{(v.start_click_rate * 100).toFixed(1)}%</td>
-                                <td className="py-1 pr-3">{(v.ranked_done_rate * 100).toFixed(1)}%</td>
                                 <td className="py-1">{(v.app_open_deeplink_rate * 100).toFixed(1)}%</td>
                               </tr>
                             ))}
@@ -853,6 +859,9 @@ export const OpsPage: React.FC = () => {
                         {shortsVariants?.start_date} → {shortsVariants?.end_date}
                       </div>
                     </div>
+                    <div className="mt-1 text-[11px] text-slate-500">
+                      Primary KPI: ranked_done / share_open
+                    </div>
                     <div className="mt-2 space-y-3">
                       {g.tables.map((tbl) => (
                         <div key={`${g.utm_source}_${tbl.key}`} className="overflow-x-auto">
@@ -862,10 +871,10 @@ export const OpsPage: React.FC = () => {
                               <tr className="text-left text-slate-500">
                                 <th className="py-1 pr-3">variant</th>
                                 <th className="py-1 pr-3">n</th>
+                                <th className="py-1 pr-3">kpi%</th>
                                 <th className="py-1 pr-3">completion%</th>
                                 <th className="py-1 pr-3">share%</th>
                                 <th className="py-1 pr-3">start_click%</th>
-                                <th className="py-1 pr-3">ranked_done%</th>
                                 <th className="py-1">app_open%</th>
                               </tr>
                             </thead>
@@ -874,10 +883,10 @@ export const OpsPage: React.FC = () => {
                                 <tr key={v.id} className="border-t border-slate-100 text-slate-700">
                                   <td className="py-1 pr-3 font-mono font-semibold">{v.id}</td>
                                   <td className="py-1 pr-3">{v.n}</td>
+                                  <td className="py-1 pr-3 font-semibold">{(v.primary_kpi_rate * 100).toFixed(1)}%</td>
                                   <td className="py-1 pr-3">{(v.completion_rate * 100).toFixed(1)}%</td>
                                   <td className="py-1 pr-3">{(v.share_rate * 100).toFixed(1)}%</td>
                                   <td className="py-1 pr-3">{(v.start_click_rate * 100).toFixed(1)}%</td>
-                                  <td className="py-1 pr-3">{(v.ranked_done_rate * 100).toFixed(1)}%</td>
                                   <td className="py-1">{(v.app_open_deeplink_rate * 100).toFixed(1)}%</td>
                                 </tr>
                               ))}

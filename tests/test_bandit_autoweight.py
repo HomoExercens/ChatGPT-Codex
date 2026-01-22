@@ -56,9 +56,9 @@ def test_bandit_promotes_winner_with_guardrails() -> None:
         table = {
             "key": "clip_len_v1",
             "variants": [
-                {"id": "10s", "n": 120, "ranked_done_rate": 0.18},
-                {"id": "12s", "n": 120, "ranked_done_rate": 0.10},
-                {"id": "15s", "n": 120, "ranked_done_rate": 0.09},
+                {"id": "10s", "n": 120, "ranked_done_rate": 0.0, "primary_kpi_rate": 0.18},
+                {"id": "12s", "n": 120, "ranked_done_rate": 0.0, "primary_kpi_rate": 0.10},
+                {"id": "15s", "n": 120, "ranked_done_rate": 0.0, "primary_kpi_rate": 0.09},
             ],
         }
         res = bandit_update_for_experiment(

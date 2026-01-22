@@ -818,6 +818,11 @@ def load_shorts_variants(
         for vid in sorted(bases.keys()):
             base = bases.get(vid, set())
             denom = max(1, len(base))
+            ranked_done_rate = (
+                float(len(base & ranked_done.get(vid, set()))) / float(denom)
+                if base
+                else 0.0
+            )
             rows.append(
                 {
                     "id": str(vid),
@@ -833,10 +838,9 @@ def load_shorts_variants(
                     / float(denom)
                     if base
                     else 0.0,
-                    "ranked_done_rate": float(len(base & ranked_done.get(vid, set())))
-                    / float(denom)
-                    if base
-                    else 0.0,
+                    # Primary KPI: ranked_done / share_open.
+                    "primary_kpi_rate": ranked_done_rate,
+                    "ranked_done_rate": ranked_done_rate,
                     "app_open_deeplink_rate": float(len(base & app_open.get(vid, set())))
                     / float(denom)
                     if base
@@ -916,6 +920,7 @@ def load_shorts_variants(
         "range": f"{days}d",
         "start_date": start.isoformat(),
         "end_date": end.isoformat(),
+        "primary_kpi": "ranked_done_per_share_open",
         "filters": {
             "utm_source": selected,
             "utm_medium": str(utm_medium or "").strip().lower() or None,

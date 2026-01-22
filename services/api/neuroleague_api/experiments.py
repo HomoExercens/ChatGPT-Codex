@@ -265,7 +265,7 @@ def bandit_update_for_experiment(
             continue
         perf[vid] = {
             "n": float(r.get("n") or 0.0),
-            "kpi": float(r.get("ranked_done_rate") or 0.0),
+            "kpi": float(r.get("primary_kpi_rate") or r.get("ranked_done_rate") or 0.0),
         }
 
     variants = _variants_from_experiment(exp)

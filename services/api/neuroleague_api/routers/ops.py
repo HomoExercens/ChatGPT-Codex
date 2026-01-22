@@ -1401,6 +1401,7 @@ class ShortsVariantRowOut(BaseModel):
     completion_rate: float
     share_rate: float
     start_click_rate: float
+    primary_kpi_rate: float
     ranked_done_rate: float
     app_open_deeplink_rate: float
 
@@ -1426,6 +1427,7 @@ class ShortsVariantsOut(BaseModel):
     range: str
     start_date: str
     end_date: str
+    primary_kpi: str = "ranked_done_per_share_open"
     filters: ShortsVariantsFiltersOut = Field(default_factory=ShortsVariantsFiltersOut)
     available_channels: list[str] = Field(default_factory=list)
     groups: list[ShortsVariantsGroupOut] = Field(default_factory=list)
@@ -1460,6 +1462,9 @@ def metrics_shorts_variants(
             for r in t.get("variants") or []:
                 if not isinstance(r, dict):
                     continue
+                primary_kpi = float(
+                    r.get("primary_kpi_rate") or r.get("ranked_done_rate") or 0.0
+                )
                 rows.append(
                     ShortsVariantRowOut(
                         id=str(r.get("id") or ""),
@@ -1467,6 +1472,7 @@ def metrics_shorts_variants(
                         completion_rate=float(r.get("completion_rate") or 0.0),
                         share_rate=float(r.get("share_rate") or 0.0),
                         start_click_rate=float(r.get("start_click_rate") or 0.0),
+                        primary_kpi_rate=primary_kpi,
                         ranked_done_rate=float(r.get("ranked_done_rate") or 0.0),
                         app_open_deeplink_rate=float(
                             r.get("app_open_deeplink_rate") or 0.0
@@ -1502,6 +1508,7 @@ def metrics_shorts_variants(
         range=str(data.get("range") or f"{days}d"),
         start_date=str(data.get("start_date") or ""),
         end_date=str(data.get("end_date") or ""),
+        primary_kpi=str(data.get("primary_kpi") or "ranked_done_per_share_open"),
         filters=ShortsVariantsFiltersOut(
             utm_source=str(raw_filters.get("utm_source") or "").strip() or None,
             utm_medium=str(raw_filters.get("utm_medium") or "").strip() or None,
