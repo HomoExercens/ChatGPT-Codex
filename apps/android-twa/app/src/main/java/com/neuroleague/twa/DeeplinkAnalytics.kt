@@ -6,11 +6,20 @@ import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
+import org.json.JSONArray
 import org.json.JSONObject
 
 object DeeplinkAnalytics {
   private const val PREFS = "neuroleague_twa"
   private const val KEY_DEVICE_ID = "device_id"
+  private const val KEY_PENDING_EVENTS = "pending_events_v1"
+  private const val MAX_QUEUE_LEN = 100
+  private val lock = Any()
+  @Volatile private var flushing: Boolean = false
+
+  fun flushPending(context: Context) {
+    flushAsync(context)
+  }
 
   fun maybeTrack(context: Context, deepLink: Uri?) {
     if (deepLink == null) return
@@ -30,7 +39,6 @@ object DeeplinkAnalytics {
       append("/api/events")
     }
 
-    val deviceId = getOrCreateDeviceId(context)
     val sessionId = UUID.randomUUID().toString()
 
     val utm = JSONObject()
@@ -54,9 +62,116 @@ object DeeplinkAnalytics {
     body.put("utm", utm)
     body.put("meta", meta)
 
+    enqueue(
+      context,
+      JSONObject()
+        .put("api_url", apiUrl)
+        .put("session_id", sessionId)
+        .put("body", body.toString()),
+    )
+    flushAsync(context)
+  }
+
+  private fun enqueue(context: Context, entry: JSONObject) {
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    synchronized(lock) {
+      val q = loadQueue(prefs)
+      q.put(entry)
+      while (q.length() > MAX_QUEUE_LEN) {
+        q.remove(0)
+      }
+      prefs.edit().putString(KEY_PENDING_EVENTS, q.toString()).apply()
+    }
+  }
+
+  private fun flushAsync(context: Context) {
+    synchronized(lock) {
+      if (flushing) return
+      flushing = true
+    }
     Thread {
       try {
-        val conn = (URL(apiUrl).openConnection() as HttpURLConnection).apply {
+        flushLoop(context)
+      } catch (_: Exception) {
+        // ignore
+      } finally {
+        synchronized(lock) { flushing = false }
+      }
+    }.start()
+  }
+
+  private fun flushLoop(context: Context) {
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val deviceId = getOrCreateDeviceId(context)
+    while (true) {
+      val next: JSONObject? =
+        synchronized(lock) {
+          val q = loadQueue(prefs)
+          if (q.length() <= 0) return
+          q.optJSONObject(0)
+        }
+      if (next == null) {
+        synchronized(lock) {
+          val q = loadQueue(prefs)
+          if (q.length() > 0) {
+            q.remove(0)
+            prefs.edit().putString(KEY_PENDING_EVENTS, q.toString()).apply()
+          }
+        }
+        continue
+      }
+      val apiUrl = next.optString("api_url", "").trim()
+      val body = next.optString("body", "").trim()
+      val sessionId = next.optString("session_id", "").trim().ifBlank { UUID.randomUUID().toString() }
+      if (apiUrl.isBlank() || body.isBlank()) {
+        synchronized(lock) {
+          val q = loadQueue(prefs)
+          if (q.length() > 0) {
+            q.remove(0)
+            prefs.edit().putString(KEY_PENDING_EVENTS, q.toString()).apply()
+          }
+        }
+        continue
+      }
+
+      val ok = postJson(apiUrl = apiUrl, deviceId = deviceId, sessionId = sessionId, body = body)
+      if (!ok) return
+
+      synchronized(lock) {
+        val q = loadQueue(prefs)
+        if (q.length() > 0) {
+          q.remove(0)
+          prefs.edit().putString(KEY_PENDING_EVENTS, q.toString()).apply()
+        }
+      }
+    }
+  }
+
+  private fun loadQueue(prefs: android.content.SharedPreferences): JSONArray {
+    val raw = prefs.getString(KEY_PENDING_EVENTS, null)
+    if (raw.isNullOrBlank()) return JSONArray()
+    return try {
+      val parsed = JSONArray(raw)
+      if (parsed.length() > MAX_QUEUE_LEN) {
+        val out = JSONArray()
+        val start = parsed.length() - MAX_QUEUE_LEN
+        for (i in start until parsed.length()) {
+          val it = parsed.optJSONObject(i)
+          if (it != null) out.put(it)
+        }
+        out
+      } else {
+        parsed
+      }
+    } catch (_: Exception) {
+      JSONArray()
+    }
+  }
+
+  private fun postJson(apiUrl: String, deviceId: String, sessionId: String, body: String): Boolean {
+    try {
+      val conn =
+        (URL(apiUrl).openConnection() as HttpURLConnection).apply {
           requestMethod = "POST"
           connectTimeout = 2500
           readTimeout = 2500
@@ -65,13 +180,27 @@ object DeeplinkAnalytics {
           setRequestProperty("x-device-id", deviceId)
           setRequestProperty("x-session-id", sessionId)
         }
-        OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { w -> w.write(body.toString()) }
-        conn.inputStream.use { _ -> }
+      OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { w -> w.write(body) }
+      val code = conn.responseCode
+      if (code in 200..299) {
+        try {
+          conn.inputStream.use { _ -> }
+        } catch (_: Exception) {
+          // ignore
+        }
         conn.disconnect()
+        return true
+      }
+      try {
+        conn.errorStream?.use { _ -> }
       } catch (_: Exception) {
         // ignore
       }
-    }.start()
+      conn.disconnect()
+      return false
+    } catch (_: Exception) {
+      return false
+    }
   }
 
   private fun getOrCreateDeviceId(context: Context): String {
@@ -83,4 +212,3 @@ object DeeplinkAnalytics {
     return created
   }
 }
-
