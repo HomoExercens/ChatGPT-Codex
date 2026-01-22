@@ -25,7 +25,7 @@ pettingzoo>=1.24.0
 gymnasium>=0.29.0
 # CPU-only PyTorch to avoid CUDA init crashes in WSL/sandbox.
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.9.1+cpu
+torch==2.10.0+cpu
 
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
