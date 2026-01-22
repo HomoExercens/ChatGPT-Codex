@@ -183,7 +183,34 @@ PY
 ※ docs 전체를 넣기 부담이면, 변경된 docs만 골라 포함하세요(단, 핵심 런북/규칙 문서는 반드시).
 
 ──────────────────────────────────────────────────────────────────────────────
-5) 최종 출력 (MANDATORY)
+5) 정리(CLEANUP) — ZIP 포함 후 생성물 삭제(필수)
+※ 이 파일들은 zip에 증거로 들어갔으면 로컬에 남기지 않는다(폴더 정리 목적).
+
+5-1) ZIP 생성 및 검증이 먼저 (MANDATORY)
+- ZIP 생성이 “완료”되고, ZIP 내용물이 “검증”되기 전에는 정리(삭제)하지 마세요.
+- 아래 중 하나로 ZIP 포함 파일을 반드시 확인:
+  - `python3 -m zipfile -l <zip경로>`
+  - (unzip 사용 가능 시) `unzip -l <zip경로>`
+
+5-2) 검증 후 생성물 삭제 (MANDATORY)
+- 아래 파일들은 ZIP에 포함된 “증거”이므로, ZIP 검증이 끝났으면 로컬에서 삭제하세요(있으면 삭제 / 없으면 스킵):
+  - artifacts/handoff/test_fast.log
+  - artifacts/handoff/pr_context.txt
+  - artifacts/handoff/make_test.log
+  - artifacts/handoff/env_notes.txt
+  - artifacts/handoff/e2e_fast.log
+  - artifacts/handoff/changes.patch
+  - artifacts/handoff/changes.bundle
+
+5-3) 폴더 최종 상태 (MANDATORY)
+- 정리 완료 후 `artifacts/handoff/`에는 아래만 남아야 합니다:
+  - 생성한 `neuroleague_github_handoff_YYYYMMDD_HHMMSS.zip` (최신 1개)
+  - artifacts/handoff/git 업로드 전 확인.txt
+  - artifacts/handoff/new handoff.txt
+- 그 외의 파일(이전 ZIP 포함)은 다른 위치로 이동하거나 삭제하여 폴더를 “항상” 깨끗하게 유지하세요.
+
+──────────────────────────────────────────────────────────────────────────────
+6) 최종 출력 (MANDATORY)
 작업을 끝내면 아래를 “텍스트로” 출력하세요:
 - ZIP_READY: <생성된 zip의 리눅스 절대경로> | <동일 zip의 WSL UNC 절대경로(\\\\wsl$\\\\Ubuntu\\\\...)>
 - PR_READY:
@@ -200,3 +227,4 @@ PY
 변경 이력
 - 2026-01-23: 운영자 관점으로 규칙 강화(Operational Notes 강제, ZIP_READY 절대경로 강제, zip 구성에 규칙 파일/`test_fast.log` 추가, `DIFF_BASE` 도입으로 직푸시 후 빈 diff 문제 방지, zip 미설치 환경을 위한 python3 zip 예시 추가).
 - 2026-01-23: docs 포함 규칙의 모호성 제거(변경된 docs가 1개뿐인 경우도 허용되도록 1~10개로 조정).
+- 2026-01-23: 정리(CLEANUP) 규칙 추가(Zip 검증 후 증거 파일 삭제, artifacts/handoff 폴더에 최신 zip + 규칙 파일만 남기기).
