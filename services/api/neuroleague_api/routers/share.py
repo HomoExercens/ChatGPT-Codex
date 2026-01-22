@@ -1336,7 +1336,7 @@ def clip_landing(
 
             function track(type, extra) {{
               try {{
-                fetch("/s/track", {{
+                fetch("/s/track" + (window.location && window.location.search ? window.location.search : ""), {{
                   method: "POST",
                   headers: {{ "content-type": "application/json" }},
                   body: JSON.stringify({{
@@ -1755,7 +1755,7 @@ def build_landing(
 
             function track(type, extra) {{
               try {{
-                fetch("/s/track", {{
+                fetch("/s/track" + (window.location && window.location.search ? window.location.search : ""), {{
                   method: "POST",
                   headers: {{ "content-type": "application/json" }},
                   body: JSON.stringify({{
@@ -2068,7 +2068,7 @@ def profile_landing(
 
           function track(type, extra) {{
             try {{
-              fetch("/s/track", {{
+              fetch("/s/track" + (window.location && window.location.search ? window.location.search : ""), {{
                 method: "POST",
                 headers: {{ "content-type": "application/json" }},
                 body: JSON.stringify({{
@@ -2380,7 +2380,7 @@ def challenge_landing(
 
             function track(type, extra) {{
               try {{
-                fetch("/s/track", {{
+                fetch("/s/track" + (window.location && window.location.search ? window.location.search : ""), {{
                   method: "POST",
                   headers: {{ "content-type": "application/json" }},
                   body: JSON.stringify({{

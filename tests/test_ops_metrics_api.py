@@ -57,3 +57,6 @@ def test_ops_metrics_endpoints_shape(api_client) -> None:
     assert r5.status_code == 200
     j5 = r5.json()
     assert isinstance(j5.get("tables"), list)
+    assert isinstance(j5.get("available_channels"), list)
+    assert isinstance(j5.get("groups"), list)
+    assert isinstance(j5.get("filters"), dict)

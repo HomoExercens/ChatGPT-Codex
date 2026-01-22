@@ -9,6 +9,7 @@ import { apiFetch } from '../lib/api';
 import { getExperimentVariant, useExperiments } from '../lib/experiments';
 import { readShareVariants } from '../lib/shareVariants';
 import { TRANSLATIONS } from '../lib/translations';
+import { appendUtmParams } from '../lib/utm';
 import { useSettingsStore } from '../stores/settings';
 
 type SlideState = {
@@ -288,7 +289,7 @@ export const ClipsPage: React.FC = () => {
           captions_version: minted.captions_version,
         },
       });
-      const base = minted.share_url_vertical;
+      const base = appendUtmParams(minted.share_url_vertical, { utm_source: 'clips_share', utm_medium: 'copy' });
       const ref = me?.user_id;
       const withRef = ref && !base.includes('ref=') ? `${base}${base.includes('?') ? '&' : '?'}ref=${encodeURIComponent(ref)}` : base;
       const url = `${window.location.origin}${withRef}`;

@@ -1410,50 +1410,105 @@ class ShortsVariantsTableOut(BaseModel):
     variants: list[ShortsVariantRowOut] = Field(default_factory=list)
 
 
+class ShortsVariantsFiltersOut(BaseModel):
+    utm_source: str | None = None
+    utm_medium: str | None = None
+    utm_campaign: str | None = None
+
+
+class ShortsVariantsGroupOut(BaseModel):
+    utm_source: str
+    n_share_open: int = 0
+    tables: list[ShortsVariantsTableOut] = Field(default_factory=list)
+
+
 class ShortsVariantsOut(BaseModel):
     range: str
     start_date: str
     end_date: str
+    filters: ShortsVariantsFiltersOut = Field(default_factory=ShortsVariantsFiltersOut)
+    available_channels: list[str] = Field(default_factory=list)
+    groups: list[ShortsVariantsGroupOut] = Field(default_factory=list)
     tables: list[ShortsVariantsTableOut] = Field(default_factory=list)
 
 
 @router.get("/metrics/shorts_variants", response_model=ShortsVariantsOut)
 def metrics_shorts_variants(
     range: str = "7d",
+    utm_source: str | None = None,
+    utm_medium: str | None = None,
+    utm_campaign: str | None = None,
     x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
     db: Session = DBSession,
 ) -> ShortsVariantsOut:
     _require_admin(x_admin_token)
     days = _parse_days(range)
-    data = load_shorts_variants(db, days=days)
-    tables: list[ShortsVariantsTableOut] = []
-    for t in data.get("tables") or []:
-        if not isinstance(t, dict):
-            continue
-        rows = []
-        for r in t.get("variants") or []:
-            if not isinstance(r, dict):
+    data = load_shorts_variants(
+        db,
+        days=days,
+        utm_source=utm_source,
+        utm_medium=utm_medium,
+        utm_campaign=utm_campaign,
+    )
+
+    def parse_tables(raw: Any) -> list[ShortsVariantsTableOut]:
+        out: list[ShortsVariantsTableOut] = []
+        for t in raw or []:
+            if not isinstance(t, dict):
                 continue
-            rows.append(
-                ShortsVariantRowOut(
-                    id=str(r.get("id") or ""),
-                    n=int(r.get("n") or 0),
-                    completion_rate=float(r.get("completion_rate") or 0.0),
-                    share_rate=float(r.get("share_rate") or 0.0),
-                    start_click_rate=float(r.get("start_click_rate") or 0.0),
-                    ranked_done_rate=float(r.get("ranked_done_rate") or 0.0),
-                    app_open_deeplink_rate=float(
-                        r.get("app_open_deeplink_rate") or 0.0
-                    ),
+            rows = []
+            for r in t.get("variants") or []:
+                if not isinstance(r, dict):
+                    continue
+                rows.append(
+                    ShortsVariantRowOut(
+                        id=str(r.get("id") or ""),
+                        n=int(r.get("n") or 0),
+                        completion_rate=float(r.get("completion_rate") or 0.0),
+                        share_rate=float(r.get("share_rate") or 0.0),
+                        start_click_rate=float(r.get("start_click_rate") or 0.0),
+                        ranked_done_rate=float(r.get("ranked_done_rate") or 0.0),
+                        app_open_deeplink_rate=float(
+                            r.get("app_open_deeplink_rate") or 0.0
+                        ),
+                    )
                 )
+            out.append(ShortsVariantsTableOut(key=str(t.get("key") or ""), variants=rows))
+        return out
+
+    tables = parse_tables(data.get("tables") or [])
+
+    groups_out: list[ShortsVariantsGroupOut] = []
+    for g in data.get("groups") or []:
+        if not isinstance(g, dict):
+            continue
+        groups_out.append(
+            ShortsVariantsGroupOut(
+                utm_source=str(g.get("utm_source") or ""),
+                n_share_open=int(g.get("n_share_open") or 0),
+                tables=parse_tables(g.get("tables") or []),
             )
-        tables.append(
-            ShortsVariantsTableOut(key=str(t.get("key") or ""), variants=rows)
         )
+
+    channels: list[str] = []
+    for c in data.get("available_channels") or []:
+        if isinstance(c, str) and c.strip():
+            channels.append(c.strip())
+
+    raw_filters = data.get("filters")
+    raw_filters = raw_filters if isinstance(raw_filters, dict) else {}
+
     return ShortsVariantsOut(
         range=str(data.get("range") or f"{days}d"),
         start_date=str(data.get("start_date") or ""),
         end_date=str(data.get("end_date") or ""),
+        filters=ShortsVariantsFiltersOut(
+            utm_source=str(raw_filters.get("utm_source") or "").strip() or None,
+            utm_medium=str(raw_filters.get("utm_medium") or "").strip() or None,
+            utm_campaign=str(raw_filters.get("utm_campaign") or "").strip() or None,
+        ),
+        available_channels=channels,
+        groups=groups_out,
         tables=tables,
     )
 

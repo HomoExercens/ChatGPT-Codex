@@ -53,6 +53,24 @@ type ShortsVariantsOut = {
   range: string;
   start_date: string;
   end_date: string;
+  filters: { utm_source?: string | null; utm_medium?: string | null; utm_campaign?: string | null };
+  available_channels: string[];
+  groups: Array<{
+    utm_source: string;
+    n_share_open: number;
+    tables: Array<{
+      key: string;
+      variants: Array<{
+        id: string;
+        n: number;
+        completion_rate: number;
+        share_rate: number;
+        start_click_rate: number;
+        ranked_done_rate: number;
+        app_open_deeplink_rate: number;
+      }>;
+    }>;
+  }>;
   tables: Array<{
     key: string;
     variants: Array<{
@@ -142,6 +160,7 @@ function saveAdminToken(token: string): void {
 export const OpsPage: React.FC = () => {
   const [adminToken, setAdminToken] = useState(loadAdminToken());
   const [range, setRange] = useState('7d');
+  const [shortsChannel, setShortsChannel] = useState('all');
 
   useEffect(() => {
     saveAdminToken(adminToken);
@@ -200,8 +219,12 @@ export const OpsPage: React.FC = () => {
   });
 
   const { data: shortsVariants } = useQuery({
-    queryKey: ['ops', 'metrics', 'shorts_variants', range, enabled],
-    queryFn: () => apiFetch<ShortsVariantsOut>(`/api/ops/metrics/shorts_variants?range=${encodeURIComponent(range)}`),
+    queryKey: ['ops', 'metrics', 'shorts_variants', range, shortsChannel, enabled],
+    queryFn: () => {
+      let url = `/api/ops/metrics/shorts_variants?range=${encodeURIComponent(range)}`;
+      if (shortsChannel !== 'all') url += `&utm_source=${encodeURIComponent(shortsChannel)}`;
+      return apiFetch<ShortsVariantsOut>(url);
+    },
     enabled,
     staleTime: 10_000,
   });
@@ -261,6 +284,16 @@ export const OpsPage: React.FC = () => {
     const items = recentErrors?.items ?? [];
     return items.filter((r) => r.status >= 500).reduce((acc, r) => acc + (r.count ?? 0), 0);
   }, [recentErrors?.items]);
+
+  const availableShortsChannels = useMemo(() => {
+    const chans = shortsVariants?.available_channels ?? [];
+    const uniq = new Set<string>();
+    for (const c of chans) {
+      const v = (c || '').trim();
+      if (v) uniq.add(v);
+    }
+    return ['all', ...Array.from(uniq)];
+  }, [shortsVariants?.available_channels]);
 
   const preflightModes = useMemo(() => {
     const modes = preflight?.report?.modes;
@@ -748,51 +781,116 @@ export const OpsPage: React.FC = () => {
               <CardTitle className="flex items-center gap-2">
                 <FlaskConical size={18} className="text-slate-500" /> Shorts Variants
               </CardTitle>
-              <Badge variant="neutral">{shortsVariants?.range ?? range}</Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant="neutral">{shortsVariants?.range ?? range}</Badge>
+                <select
+                  value={shortsChannel}
+                  onChange={(e) => setShortsChannel(e.target.value)}
+                  className="h-8 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700"
+                >
+                  {availableShortsChannels.map((c) => (
+                    <option key={c} value={c}>
+                      {c === 'all' ? 'All channels' : c}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
               {shortsVariants?.tables?.length ? (
-                shortsVariants.tables.map((tbl) => (
-                  <div key={tbl.key} className="rounded-xl border border-slate-200 bg-white px-3 py-3">
+                <div className="rounded-xl border border-slate-200 bg-white px-3 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-bold text-slate-800">All</div>
+                    <div className="text-xs text-slate-500">
+                      {shortsVariants.start_date} → {shortsVariants.end_date}
+                    </div>
+                  </div>
+                  <div className="mt-2 space-y-3">
+                    {shortsVariants.tables.map((tbl) => (
+                      <div key={`all_${tbl.key}`} className="overflow-x-auto">
+                        <div className="mb-1 text-[11px] font-semibold text-slate-600">{tbl.key}</div>
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="text-left text-slate-500">
+                              <th className="py-1 pr-3">variant</th>
+                              <th className="py-1 pr-3">n</th>
+                              <th className="py-1 pr-3">completion%</th>
+                              <th className="py-1 pr-3">share%</th>
+                              <th className="py-1 pr-3">start_click%</th>
+                              <th className="py-1 pr-3">ranked_done%</th>
+                              <th className="py-1">app_open%</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {tbl.variants.map((v) => (
+                              <tr key={v.id} className="border-t border-slate-100 text-slate-700">
+                                <td className="py-1 pr-3 font-mono font-semibold">{v.id}</td>
+                                <td className="py-1 pr-3">{v.n}</td>
+                                <td className="py-1 pr-3">{(v.completion_rate * 100).toFixed(1)}%</td>
+                                <td className="py-1 pr-3">{(v.share_rate * 100).toFixed(1)}%</td>
+                                <td className="py-1 pr-3">{(v.start_click_rate * 100).toFixed(1)}%</td>
+                                <td className="py-1 pr-3">{(v.ranked_done_rate * 100).toFixed(1)}%</td>
+                                <td className="py-1">{(v.app_open_deeplink_rate * 100).toFixed(1)}%</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {shortsVariants?.groups?.length ? (
+                shortsVariants.groups.map((g) => (
+                  <div key={g.utm_source} className="rounded-xl border border-slate-200 bg-white px-3 py-3">
                     <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm font-bold text-slate-800">{tbl.key}</div>
+                      <div className="flex items-center gap-2">
+                        <div className="text-sm font-bold text-slate-800">{g.utm_source}</div>
+                        <Badge variant="neutral">{g.n_share_open} share_open</Badge>
+                      </div>
                       <div className="text-xs text-slate-500">
-                        {shortsVariants.start_date} → {shortsVariants.end_date}
+                        {shortsVariants?.start_date} → {shortsVariants?.end_date}
                       </div>
                     </div>
-                    <div className="mt-2 overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="text-left text-slate-500">
-                            <th className="py-1 pr-3">variant</th>
-                            <th className="py-1 pr-3">n</th>
-                            <th className="py-1 pr-3">completion%</th>
-                            <th className="py-1 pr-3">share%</th>
-                            <th className="py-1 pr-3">start_click%</th>
-                            <th className="py-1 pr-3">ranked_done%</th>
-                            <th className="py-1">app_open%</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {tbl.variants.map((v) => (
-                            <tr key={v.id} className="border-t border-slate-100 text-slate-700">
-                              <td className="py-1 pr-3 font-mono font-semibold">{v.id}</td>
-                              <td className="py-1 pr-3">{v.n}</td>
-                              <td className="py-1 pr-3">{(v.completion_rate * 100).toFixed(1)}%</td>
-                              <td className="py-1 pr-3">{(v.share_rate * 100).toFixed(1)}%</td>
-                              <td className="py-1 pr-3">{(v.start_click_rate * 100).toFixed(1)}%</td>
-                              <td className="py-1 pr-3">{(v.ranked_done_rate * 100).toFixed(1)}%</td>
-                              <td className="py-1">{(v.app_open_deeplink_rate * 100).toFixed(1)}%</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <div className="mt-2 space-y-3">
+                      {g.tables.map((tbl) => (
+                        <div key={`${g.utm_source}_${tbl.key}`} className="overflow-x-auto">
+                          <div className="mb-1 text-[11px] font-semibold text-slate-600">{tbl.key}</div>
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="text-left text-slate-500">
+                                <th className="py-1 pr-3">variant</th>
+                                <th className="py-1 pr-3">n</th>
+                                <th className="py-1 pr-3">completion%</th>
+                                <th className="py-1 pr-3">share%</th>
+                                <th className="py-1 pr-3">start_click%</th>
+                                <th className="py-1 pr-3">ranked_done%</th>
+                                <th className="py-1">app_open%</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {tbl.variants.map((v) => (
+                                <tr key={v.id} className="border-t border-slate-100 text-slate-700">
+                                  <td className="py-1 pr-3 font-mono font-semibold">{v.id}</td>
+                                  <td className="py-1 pr-3">{v.n}</td>
+                                  <td className="py-1 pr-3">{(v.completion_rate * 100).toFixed(1)}%</td>
+                                  <td className="py-1 pr-3">{(v.share_rate * 100).toFixed(1)}%</td>
+                                  <td className="py-1 pr-3">{(v.start_click_rate * 100).toFixed(1)}%</td>
+                                  <td className="py-1 pr-3">{(v.ranked_done_rate * 100).toFixed(1)}%</td>
+                                  <td className="py-1">{(v.app_open_deeplink_rate * 100).toFixed(1)}%</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ))
-              ) : (
+              ) : !shortsVariants?.tables?.length ? (
                 <div className="text-sm text-slate-500">No shorts variant data yet.</div>
-              )}
+              ) : null}
             </CardContent>
           </Card>
 

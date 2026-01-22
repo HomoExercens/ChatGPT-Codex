@@ -583,6 +583,9 @@ def load_shorts_variants(
     *,
     days: int = 7,
     end_date: date | None = None,
+    utm_source: str | None = None,
+    utm_medium: str | None = None,
+    utm_campaign: str | None = None,
 ) -> dict[str, Any]:
     days = max(1, int(days))
     end = end_date or datetime.now(UTC).date()
@@ -604,6 +607,7 @@ def load_shorts_variants(
         .where(Event.created_at >= start_dt)
         .where(Event.created_at < end_dt)
         .where(Event.type.in_(event_types))
+        .order_by(Event.created_at)
     ).all()
 
     def anon_key(payload: dict[str, Any]) -> str | None:
@@ -641,6 +645,42 @@ def load_shorts_variants(
                 out["captions_v2"] = raw.strip()
         return out
 
+    def _utm(payload: dict[str, Any]) -> dict[str, str]:
+        v = payload.get("utm")
+        if isinstance(v, dict):
+            out: dict[str, str] = {}
+            for k, val in v.items():
+                if isinstance(k, str) and isinstance(val, str) and val.strip():
+                    out[k] = val.strip()[:120]
+            return out
+        return {}
+
+    def _utm_match(
+        payload: dict[str, Any],
+        *,
+        utm_medium_filter: str | None,
+        utm_campaign_filter: str | None,
+    ) -> bool:
+        if not utm_medium_filter and not utm_campaign_filter:
+            return True
+        u = _utm(payload)
+        if utm_medium_filter:
+            if str(u.get("utm_medium") or "").strip().lower() != str(
+                utm_medium_filter
+            ).strip().lower():
+                return False
+        if utm_campaign_filter:
+            if str(u.get("utm_campaign") or "").strip().lower() != str(
+                utm_campaign_filter
+            ).strip().lower():
+                return False
+        return True
+
+    def _utm_source(payload: dict[str, Any]) -> str:
+        u = _utm(payload)
+        src = str(u.get("utm_source") or "").strip().lower()
+        return src[:80] if src else "unknown"
+
     share_open_len: dict[str, set[str]] = defaultdict(set)
     share_open_cap: dict[str, set[str]] = defaultdict(set)
     completion_len: dict[str, set[str]] = defaultdict(set)
@@ -651,6 +691,15 @@ def load_shorts_variants(
     start_cap: dict[str, set[str]] = defaultdict(set)
     app_open_len: dict[str, set[str]] = defaultdict(set)
     app_open_cap: dict[str, set[str]] = defaultdict(set)
+
+    channels: set[str] = set()
+    share_open_anon_by_source: dict[str, set[str]] = defaultdict(set)
+    share_open_len_by_source: dict[str, dict[str, set[str]]] = defaultdict(
+        lambda: defaultdict(set)
+    )
+    share_open_cap_by_source: dict[str, dict[str, set[str]]] = defaultdict(
+        lambda: defaultdict(set)
+    )
 
     ranked_queue_by_match: dict[str, dict[str, str]] = {}
     ranked_done_match_ids: set[str] = set()
@@ -667,10 +716,21 @@ def load_shorts_variants(
                 continue
             if not akey:
                 continue
+            if not _utm_match(
+                payload,
+                utm_medium_filter=utm_medium,
+                utm_campaign_filter=utm_campaign,
+            ):
+                continue
+            src = _utm_source(payload)
+            channels.add(src)
+            share_open_anon_by_source[src].add(akey)
             if clip_len:
                 share_open_len[str(clip_len)].add(akey)
+                share_open_len_by_source[src][str(clip_len)].add(akey)
             if captions:
                 share_open_cap[str(captions)].add(akey)
+                share_open_cap_by_source[src][str(captions)].add(akey)
             continue
 
         if str(ev.type) in {"clip_completion", "clip_share"}:
@@ -806,9 +866,62 @@ def load_shorts_variants(
         ),
     ]
 
+    groups: list[dict[str, Any]] = []
+    channel_rows = [(len(share_open_anon_by_source[c]), c) for c in channels]
+    for _n, ch in sorted(channel_rows, key=lambda it: (-int(it[0]), str(it[1]))):
+        groups.append(
+            {
+                "utm_source": ch,
+                "n_share_open": int(len(share_open_anon_by_source[ch])),
+                "tables": [
+                    _table(
+                        key="clip_len_v1",
+                        bases=share_open_len_by_source[ch],
+                        completion=completion_len,
+                        share=share_len,
+                        start=start_len,
+                        ranked_done=ranked_done_len,
+                        app_open=app_open_len,
+                    ),
+                    _table(
+                        key="captions_v2",
+                        bases=share_open_cap_by_source[ch],
+                        completion=completion_cap,
+                        share=share_cap,
+                        start=start_cap,
+                        ranked_done=ranked_done_cap,
+                        app_open=app_open_cap,
+                    ),
+                ],
+            }
+        )
+
+    selected = str(utm_source or "").strip().lower() or None
+    if selected and selected != "all":
+        filtered_groups = [
+            g for g in groups if str(g.get("utm_source") or "") == selected
+        ]
+        tables = (
+            list(filtered_groups[0].get("tables") or [])
+            if filtered_groups
+            else []
+        )
+        groups = filtered_groups
+
+    available_channels = [
+        c for _n, c in sorted(channel_rows, key=lambda it: (-int(it[0]), str(it[1])))
+    ]
+
     return {
         "range": f"{days}d",
         "start_date": start.isoformat(),
         "end_date": end.isoformat(),
+        "filters": {
+            "utm_source": selected,
+            "utm_medium": str(utm_medium or "").strip().lower() or None,
+            "utm_campaign": str(utm_campaign or "").strip().lower() or None,
+        },
+        "available_channels": available_channels,
+        "groups": groups,
         "tables": tables,
     }

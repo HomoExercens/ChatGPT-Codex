@@ -23,6 +23,7 @@ import type { BlueprintOut, MatchDetail, ModifiersMeta, QueueResponse, Replay } 
 import { apiFetch, apiFetchBlob } from '../lib/api';
 import { readShareVariants } from '../lib/shareVariants';
 import { TRANSLATIONS } from '../lib/translations';
+import { appendUtmParams } from '../lib/utm';
 import { useSettingsStore } from '../stores/settings';
 
 const RECOMMENDED_STARTER_BUILDS: Record<'1v1' | 'team', Array<{ id: string; label: string }>> = {
@@ -665,7 +666,11 @@ export const ReplayPage: React.FC = () => {
         },
       }),
     });
-    await copyEndpointLink(withReferral(minted.share_url_vertical));
+    const url = appendUtmParams(withReferral(minted.share_url_vertical), {
+      utm_source: 'replay_share',
+      utm_medium: 'copy',
+    });
+    await copyEndpointLink(url);
   };
 
   return (

@@ -119,6 +119,27 @@ def track_public(
     except Exception:  # noqa: BLE001
         pass
 
+    utm: dict[str, str] = {}
+    try:
+        for k, v in (req.utm or {}).items():
+            if isinstance(k, str) and isinstance(v, str) and v.strip():
+                utm[str(k)[:40]] = str(v).strip()[:120]
+    except Exception:  # noqa: BLE001
+        utm = {}
+
+    for k in (
+        "utm_source",
+        "utm_medium",
+        "utm_campaign",
+        "utm_content",
+        "utm_term",
+    ):
+        if k in utm:
+            continue
+        v = str(deeplink_query.get(k) or "").strip()
+        if v:
+            utm[k] = v[:120]
+
     variants: dict[str, str] = {}
     lenv = str(deeplink_query.get("lenv") or "").strip()
     if lenv:
@@ -131,7 +152,7 @@ def track_public(
     payload: dict[str, Any] = {
         "source": req.source,
         "ref": req.ref,
-        "utm": req.utm,
+        "utm": utm,
         "meta": meta,
         "url": req.url,
         "variants": variants,
