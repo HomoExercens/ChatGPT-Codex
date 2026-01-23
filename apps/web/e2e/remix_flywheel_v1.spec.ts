@@ -22,7 +22,6 @@ test('share landing Remix → Forge shows lineage', async ({ page }) => {
   await remixLink.click();
 
   await page.waitForURL('**/forge/**', { timeout: 60_000 });
-  await expect(page.getByText('Lineage')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole('heading', { name: 'Lineage' })).toBeVisible({ timeout: 60_000 });
   await expect(page.getByRole('button', { name: 'View Parent' })).toBeVisible({ timeout: 60_000 });
 });
-
