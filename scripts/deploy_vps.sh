@@ -85,6 +85,17 @@ ssh "${ssh_opts[@]}" "${DEPLOY_SSH_HOST}" bash -lc "set -euo pipefail
     echo '[deploy] .env.deploy missing DEPLOY_DOMAIN=...' >&2;
     exit 3;
   fi
+  WANT_DOMAIN='${DEPLOY_DOMAIN}';
+  GOT_DOMAIN=\"\$(grep -E '^DEPLOY_DOMAIN=' .env.deploy | tail -n 1 | cut -d= -f2- | tr -d '\\r' || true)\";
+  if [[ -n \"\${WANT_DOMAIN}\" && -n \"\${GOT_DOMAIN}\" && \"\${WANT_DOMAIN}\" != \"\${GOT_DOMAIN}\" ]]; then
+    echo \"[deploy] .env.deploy DEPLOY_DOMAIN mismatch (want=\${WANT_DOMAIN}, got=\${GOT_DOMAIN})\" >&2;
+    echo '[deploy] Edit .env.deploy (server-only) then re-run.' >&2;
+    exit 3;
+  fi
+  if ! grep -qE '^CADDY_ACME_CA=' .env.deploy >/dev/null 2>&1; then
+    echo '[deploy] note: CADDY_ACME_CA not set → default is production Let\\x27s Encrypt (rate limits may apply).' >&2;
+    echo '[deploy] rehearsal hint: set CADDY_ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory' >&2;
+  fi
 
   docker compose -f docker-compose.deploy.yml --env-file .env.deploy pull || true;
 
@@ -97,18 +108,84 @@ ssh "${ssh_opts[@]}" "${DEPLOY_SSH_HOST}" bash -lc "set -euo pipefail
   fi
 
   # Smoke: wait for /api/ready via Caddy.
+  READY_OK='0';
   for i in \$(seq 1 60); do
     if curl -fsS 'http://127.0.0.1/api/ready' >/dev/null 2>&1; then
-      echo '[deploy] ready: OK' >&2;
-      exit 0;
+      READY_OK='1';
+      break;
     fi
     sleep 2;
   done
 
-  echo '[deploy] ready: TIMEOUT' >&2;
-  docker compose -f docker-compose.deploy.yml --env-file .env.deploy ps >&2 || true;
-  docker compose -f docker-compose.deploy.yml --env-file .env.deploy logs --tail=200 api >&2 || true;
-  exit 5;
+  if [[ \"\${READY_OK}\" != '1' ]]; then
+    echo '[deploy] ready: TIMEOUT' >&2;
+    docker compose -f docker-compose.deploy.yml --env-file .env.deploy ps >&2 || true;
+    docker compose -f docker-compose.deploy.yml --env-file .env.deploy logs --tail=200 api >&2 || true;
+    exit 5;
+  fi
+  echo '[deploy] ready: OK' >&2;
+
+  # Extended smoke (no admin token required).
+  smoke_fail() {
+    echo \"[deploy] smoke: FAIL - \${1}\" >&2;
+    docker compose -f docker-compose.deploy.yml --env-file .env.deploy ps >&2 || true;
+    docker compose -f docker-compose.deploy.yml --env-file .env.deploy logs --tail=200 caddy >&2 || true;
+    docker compose -f docker-compose.deploy.yml --env-file .env.deploy logs --tail=200 api >&2 || true;
+    if [[ -n \"\${PREV_SHA}\" ]]; then
+      echo \"[deploy] rollback hint: git checkout \${PREV_SHA} && docker compose ... up -d --build\" >&2;
+    fi
+    exit 6;
+  }
+
+  if ! curl -fsS 'http://127.0.0.1/' >/dev/null 2>&1; then
+    smoke_fail 'GET / failed';
+  fi
+  if ! curl -fsS 'http://127.0.0.1/playtest' >/dev/null 2>&1; then
+    smoke_fail 'GET /playtest failed';
+  fi
+  OPS_CODE=\"\$(curl -sS -o /dev/null -w '%{http_code}' 'http://127.0.0.1/api/ops/status' || echo 000)\";
+  if [[ \"\${OPS_CODE}\" != '401' ]]; then
+    smoke_fail \"/api/ops/status expected 401 (locked), got \${OPS_CODE}\";
+  fi
+
+  DEMO_REPLAY_ID=\"\$(curl -fsS 'http://127.0.0.1/api/assets/ops/demo_ids.json' | python3 -c 'import json,sys;print(json.load(sys.stdin).get(\"clip_replay_id\",\"\"))' || true)\";
+  if [[ -z \"\${DEMO_REPLAY_ID}\" ]]; then
+    smoke_fail 'missing demo_ids.json clip_replay_id (seed not run?)';
+  fi
+  OG_HTML=\"\$(curl -fsS \"http://127.0.0.1/s/clip/\${DEMO_REPLAY_ID}?start=0.0&end=2.0&v=1\" || true)\";
+  if ! echo \"\${OG_HTML}\" | grep -q 'property=\"og:image\"'; then
+    smoke_fail 'OG missing og:image';
+  fi
+  OG_IMAGE_URL=\"\$(python3 - <<'PY'
+import re,sys
+html=sys.stdin.read()
+m=re.search(r'property=\"og:image\" content=\"([^\"]+)\"', html)
+print(m.group(1) if m else '')
+PY
+<<<\"\${OG_HTML}\")\";
+  if [[ -z \"\${OG_IMAGE_URL}\" ]]; then
+    smoke_fail 'og:image empty';
+  fi
+  OG_PATH=\"\$(python3 - <<'PY'
+import sys
+from urllib.parse import urlparse
+u=sys.stdin.read().strip()
+p=urlparse(u)
+path=p.path or ''
+if p.query:
+  path += '?' + p.query
+print(path)
+PY
+<<<\"\${OG_IMAGE_URL}\")\";
+  if [[ -z \"\${OG_PATH}\" ]]; then
+    smoke_fail 'og:image path parse failed';
+  fi
+  IMG_CODE=\"\$(curl -sS -o /dev/null -w '%{http_code}' \"http://127.0.0.1\${OG_PATH}\" || echo 000)\";
+  if [[ \"\${IMG_CODE}\" != '200' && \"\${IMG_CODE}\" != '307' ]]; then
+    smoke_fail \"og:image expected 200/307 (never-404), got \${IMG_CODE}\";
+  fi
+  echo '[deploy] smoke: OK' >&2;
+  exit 0;
 "
 
 echo "[deploy] done" >&2

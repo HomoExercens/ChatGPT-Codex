@@ -28,6 +28,8 @@ import { ReplayPage } from './pages/ReplayPage';
 import { ReplayHubPage } from './pages/ReplayHubPage';
 import { RemixPage } from './pages/RemixPage';
 import { BeatPage } from './pages/BeatPage';
+import { PlaytestPage } from './pages/PlaytestPage';
+import { FeedbackPage } from './pages/FeedbackPage';
 import { RankedPage } from './pages/RankedPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SocialPage } from './pages/SocialPage';
@@ -65,6 +67,8 @@ function App() {
       <Route path="/start" element={<StartPage />} />
       <Route path="/remix" element={<RemixPage />} />
       <Route path="/beat" element={<BeatPage />} />
+      <Route path="/playtest" element={<PlaytestPage />} />
+      <Route path="/feedback" element={<FeedbackPage />} />
 
       <Route
         element={

@@ -13,11 +13,12 @@
   - `/api/*`, `/s/*`, `/.well-known/*`는 Vite 프록시로 API(`http://127.0.0.1:8000`)에 전달됩니다.
 - Quick Tunnel URL(이번 실행에서 발급): `artifacts/preview/preview_url.txt`
 - 외부 스모크 로그(이번 실행): `artifacts/preview/preview_smoke.log`
+- Playtest(2분 루프): `<PREVIEW_URL>/playtest`
 
 ## 15분 내 재현 방법 (Quick Tunnel)
 ### 0) 사전 준비
 - Python/Node 의존성은 기존 `make dev` 흐름을 그대로 사용합니다.
-- demo clip id는 시드 데이터에 포함된 `r_seed_001`을 사용합니다.
+- demo clip id는 시드 데이터가 생성하는 `api/assets/ops/demo_ids.json`를 사용합니다.
 
 ### 1) DB 마이그레이션 + 시드
 ```bash
@@ -53,9 +54,11 @@ export NEUROLEAGUE_PUBLIC_BASE_URL="$PREVIEW_URL"
 ## 스모크 테스트 체크리스트
 ### 외부(Quick Tunnel URL)
 ```bash
+DEMO_REPLAY_ID="$(curl -fsS "$PREVIEW_URL/api/assets/ops/demo_ids.json" | python3 -c 'import json,sys;print(json.load(sys.stdin)[\"clip_replay_id\"])')"
 curl -fsS "$PREVIEW_URL/" >/dev/null
 curl -fsS "$PREVIEW_URL/api/ready" >/dev/null
-curl -fsS "$PREVIEW_URL/s/clip/r_seed_001?start=0.0&end=2.0&v=1" | rg 'property="og:title"' >/dev/null
+curl -fsS "$PREVIEW_URL/playtest" >/dev/null
+curl -fsS "$PREVIEW_URL/s/clip/$DEMO_REPLAY_ID?start=0.0&end=2.0&v=1" | rg 'property=\"og:title\"' >/dev/null
 curl -fsS "$PREVIEW_URL/api/ops/status" -o /dev/null -w "%{http_code}\n"  # 기대: 401 (admin token 없으면 잠김)
 ```
 
@@ -65,11 +68,23 @@ curl -fsS http://127.0.0.1:8000/api/ready >/dev/null
 curl -fsS http://127.0.0.1:3000/ >/dev/null
 ```
 
+## 이벤트/퍼널 확인(ops)
+1) 집계 실행:
+```bash
+make ops-metrics-rollup
+```
+
+2) admin token으로 확인:
+- `<base_url>/ops` (상단 Admin Token 입력)
+- 또는 API 직접 조회:
+  - `GET /api/ops/metrics/funnel_daily?range=7d&funnel=playtest_v1`
+  - `GET /api/ops/metrics/funnel_daily?range=7d&funnel=remix_v3`
+
 ## 운영상 주의사항(필수)
 - Quick Tunnel(trycloudflare)은 **실험용**이며 URL이 매번 바뀌고, uptime 보장이 없습니다.
 - 안정적 운영은:
   - (권장) 단일 VPS + Caddy + `docker-compose.deploy.yml` (런북: `docs/RUNBOOK_DEPLOY.md`)
-  - 또는 Cloudflare “named tunnel”로 전환
+  - 또는 Cloudflare “named tunnel”로 전환 (런북: `docs/NAMED_TUNNEL_RUNBOOK.md`, 스크립트: `scripts/cloudflare_named_tunnel.sh`)
 
 ## 중지/정리
 프리뷰 중지:
@@ -81,4 +96,3 @@ curl -fsS http://127.0.0.1:3000/ >/dev/null
 pkill -f cloudflared || true
 pkill -f scripts/dev.sh || true
 ```
-

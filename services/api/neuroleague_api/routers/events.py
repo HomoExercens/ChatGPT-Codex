@@ -36,6 +36,10 @@ EventType = Literal[
     "first_replay_open",
     "replay_open",
     "blueprint_fork",
+    # Playtest / Seed Pack.
+    "playtest_opened",
+    "playtest_step_completed",
+    "playtest_completed",
     # Remix flywheel v1.
     "fork_click",
     "fork_created",

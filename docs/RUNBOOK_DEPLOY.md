@@ -9,6 +9,9 @@ This runbook describes a “single VPS” deployment using `docker-compose.deplo
 - A domain (recommended) pointing to the VPS (`A` record)
 - Ports open: `80` and `443`
 
+Alternative (no VPS, but stable URL):
+- Cloudflare **Named Tunnel** + your domain → `docs/NAMED_TUNNEL_RUNBOOK.md`
+
 ## 0.5) Local prod-like rehearsal (optional)
 If you can run Docker locally, this is the fastest way to validate reverse-proxy + `/api` + `/s/*` behavior before touching a VPS.
 
@@ -48,6 +51,7 @@ Let’s Encrypt has rate limits. For the first boot / rehearsal:
 - `NEUROLEAGUE_PUBLIC_BASE_URL=https://<your-domain> NEUROLEAGUE_ADMIN_TOKEN=<token> make deploy-smoke`
 - (Recommended) `./scripts/vps_rehearsal_check.sh https://<your-domain>` — runs the extended smoke checks via curl.
 - Web: open `<base_url>/` and confirm login works
+- Playtest: open `<base_url>/playtest` and ensure the 2‑minute loop instructions load
 - Ops: open `<base_url>/ops` and paste admin token to load status/metrics
 - Moderation: open `<base_url>/ops/moderation` (reports triage + hide/soft-ban)
 - Demo IDs (if seeded): `<base_url>/api/assets/ops/demo_ids.json`

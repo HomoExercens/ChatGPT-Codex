@@ -83,6 +83,18 @@ FUNNEL_STEPS_REMIX_V3: list[str] = [
     "notification_opened",
 ]
 
+FUNNEL_PLAYTEST_V1: str = "playtest_v1"
+FUNNEL_STEPS_PLAYTEST_V1: list[str] = [
+    "playtest_opened",
+    "playtest_step_1",
+    "playtest_step_2",
+    "playtest_step_3",
+    "playtest_step_4",
+    "playtest_step_5",
+    "playtest_step_6",
+    "playtest_completed",
+]
+
 FUNNEL_DEMO_V1: str = "demo_v1"
 FUNNEL_STEPS_DEMO_V1: list[str] = [
     "demo_run_start",
@@ -98,6 +110,7 @@ FUNNEL_DEFS: dict[str, list[str]] = {
     FUNNEL_REMIX_V1: FUNNEL_STEPS_REMIX_V1,
     FUNNEL_REMIX_V2: FUNNEL_STEPS_REMIX_V2,
     FUNNEL_REMIX_V3: FUNNEL_STEPS_REMIX_V3,
+    FUNNEL_PLAYTEST_V1: FUNNEL_STEPS_PLAYTEST_V1,
     FUNNEL_DEMO_V1: FUNNEL_STEPS_DEMO_V1,
 }
 
@@ -199,6 +212,9 @@ def rollup_growth_metrics(
                         "first_replay_open",
                         "replay_open",
                         "blueprint_fork",
+                        "playtest_opened",
+                        "playtest_step_completed",
+                        "playtest_completed",
                         "blueprint_submit",
                         "ranked_queue",
                         "ranked_done",
@@ -238,6 +254,16 @@ def rollup_growth_metrics(
             unique_by_type[str(ev.type)].add(key)
             if str(ev.type) == "share_cta_click":
                 unique_by_type["start_click"].add(key)
+            if str(ev.type) == "playtest_step_completed":
+                meta = payload.get("meta")
+                if isinstance(meta, dict):
+                    sid = meta.get("step_id")
+                    try:
+                        step_id = int(sid)
+                    except Exception:  # noqa: BLE001
+                        step_id = -1
+                    if 1 <= step_id <= 6:
+                        unique_by_type[f"playtest_step_{step_id}"].add(key)
 
         # Global match KPIs (ranked, all users) for this day.
         total_matches = int(
@@ -332,6 +358,19 @@ def rollup_growth_metrics(
             "blueprint_fork_users",
             float(len(unique_by_type.get("blueprint_fork", set()))),
         )
+        add_metric(
+            "playtest_opened_users",
+            float(len(unique_by_type.get("playtest_opened", set()))),
+        )
+        add_metric(
+            "playtest_completed_users",
+            float(len(unique_by_type.get("playtest_completed", set()))),
+        )
+        for step_id in range(1, 7):
+            add_metric(
+                f"playtest_step_{step_id}_users",
+                float(len(unique_by_type.get(f"playtest_step_{step_id}", set()))),
+            )
         add_metric(
             "blueprint_submit_users",
             float(len(unique_by_type.get("blueprint_submit", set()))),
@@ -567,6 +606,9 @@ def load_experiment_stats(
             "ranked_queue",
             "ranked_done",
             "app_open_deeplink",
+            # Playtest.
+            "playtest_opened",
+            "playtest_completed",
             # Clips funnel.
             "clip_view",
             "clip_completion",
