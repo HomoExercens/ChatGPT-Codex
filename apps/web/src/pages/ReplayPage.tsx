@@ -40,6 +40,20 @@ const RECOMMENDED_STARTER_BUILDS: Record<'1v1' | 'team', Array<{ id: string; lab
   ],
 };
 
+const PLAYTEST_ACTIVE_KEY = 'neuroleague.playtest.active';
+const PLAYTEST_DEMO_REPLAY_ID_KEY = 'neuroleague.playtest.demo_replay_id';
+
+function getPlaytestDemoReplayId(): string | null {
+  try {
+    const active = localStorage.getItem(PLAYTEST_ACTIVE_KEY);
+    if (!active) return null;
+    const rid = (localStorage.getItem(PLAYTEST_DEMO_REPLAY_ID_KEY) || '').trim();
+    return rid || null;
+  } catch {
+    return null;
+  }
+}
+
 export const ReplayPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -788,6 +802,23 @@ export const ReplayPage: React.FC = () => {
       // ignore
     }
 
+    // Playtest v2 funnel: treat reply share as step 5 (best-effort).
+    try {
+      const demo = getPlaytestDemoReplayId();
+      if (demo && parent && demo === parent) {
+        await apiFetch('/api/events/track', {
+          method: 'POST',
+          body: JSON.stringify({
+            type: 'playtest_step_completed',
+            source: 'playtest',
+            meta: { step_id: 5, demo_replay_id: demo, parent_replay_id: parent, reply_replay_id: match.replay_id, match_id: id },
+          }),
+        });
+      }
+    } catch {
+      // ignore
+    }
+
     const url = appendUtmParams(withReferral(minted.share_url_vertical), {
       utm_source: 'reply_clip_share',
       utm_medium: 'copy',
@@ -989,6 +1020,37 @@ export const ReplayPage: React.FC = () => {
                     href={`/s/clip/${encodeURIComponent(replyToReplayId)}`}
                     target="_blank"
                     rel="noreferrer"
+                    onClick={() => {
+                      // Playtest v2 funnel: "check Replies" proxy (open original clip).
+                      const demo = getPlaytestDemoReplayId();
+                      if (!demo || !replyToReplayId || demo !== replyToReplayId) return;
+                      void (async () => {
+                        try {
+                          await apiFetch('/api/events/track', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                              type: 'playtest_step_completed',
+                              source: 'playtest',
+                              meta: { step_id: 6, demo_replay_id: demo, parent_replay_id: replyToReplayId, match_id: id },
+                            }),
+                          });
+                        } catch {
+                          // ignore
+                        }
+                        try {
+                          await apiFetch('/api/events/track', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                              type: 'playtest_completed',
+                              source: 'playtest',
+                              meta: { demo_replay_id: demo, parent_replay_id: replyToReplayId, match_id: id },
+                            }),
+                          });
+                        } catch {
+                          // ignore
+                        }
+                      })();
+                    }}
                     className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50"
                   >
                     View Original

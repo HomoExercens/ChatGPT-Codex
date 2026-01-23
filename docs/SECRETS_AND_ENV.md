@@ -23,6 +23,16 @@
 - `POSTGRES_PASSWORD`
 - `MINIO_ROOT_PASSWORD`
 
+## Public preview hardening (권장)
+공개 프리뷰(Quick Tunnel/스테이징)는 자동 스캐너/봇 유입 가능성이 높습니다.
+
+- `NEUROLEAGUE_PREVIEW_MODE=true`
+  - 목적: “비싼 작업”이 **익명 트래픽으로 큐에 쌓이지 않도록** 기본 차단
+  - 현재 동작(v1): `/s/clip/*/kit.zip?hq=1`에서 HQ MP4가 캐시 미스일 때 **렌더 잡을 enqueue하지 않고 404**로 처리(캐시 히트만 허용)
+  - 운영 팁:
+    - 프리뷰/스테이징에서는 `true` 권장
+    - 정식 운영(크리에이터 툴/다운로드가 중요)에서는 `false`로 전환 고려
+
 ## 공개로 두면 안 되는 값 (예시)
 - Discord OAuth: `NEUROLEAGUE_DISCORD_CLIENT_ID`, `NEUROLEAGUE_DISCORD_CLIENT_SECRET`
 - (추가될 수 있음) 외부 API 키, 결제 키, 웹훅 시크릿 등
@@ -36,4 +46,3 @@
 ## 로컬/CI 예시 파일의 역할
 - `.env.deploy.example`: 배포용 템플릿(절대 시크릿 넣지 않음)
 - `.env.deploy.ci.example`: CI에서 compose smoke를 돌리기 위한 더미 값(외부 서비스 의존 최소화)
-

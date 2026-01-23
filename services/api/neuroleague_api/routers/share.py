@@ -569,6 +569,13 @@ def clip_creator_kit_zip(
         if not mp4_exists:
             if not hq_mode:
                 raise HTTPException(status_code=404, detail="MP4 not cached yet")
+            # Public preview hardening: never enqueue HQ render jobs from anonymous traffic.
+            settings = Settings()
+            if bool(getattr(settings, "preview_mode", False)):
+                raise HTTPException(
+                    status_code=404,
+                    detail="HQ MP4 not cached yet (preview mode: cache-hit only)",
+                )
 
             from neuroleague_api.models import RenderJob
 

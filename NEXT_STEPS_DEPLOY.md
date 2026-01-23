@@ -44,6 +44,8 @@ chmod +x ~/.local/bin/cloudflared
 Vite 프록시 때문에 API가 `Host`를 외부 URL로 자동 인식하지 못하므로, **반드시** 다음 환경변수로 절대 URL을 고정합니다:
 ```bash
 export NEUROLEAGUE_PUBLIC_BASE_URL="$PREVIEW_URL"
+# (Recommended for public previews) prevent expensive anonymous work from queueing
+export NEUROLEAGUE_PREVIEW_MODE=true
 ./scripts/dev.sh
 ```
 
@@ -73,6 +75,13 @@ curl -fsS http://127.0.0.1:3000/ >/dev/null
 ```bash
 make ops-metrics-rollup
 ```
+
+추가: Playtest 요약 리포트(로컬/ops 파일 출력)
+```bash
+./.venv/bin/python scripts/playtest_report.py --days 7
+```
+- JSON(ops, 공개): `<base_url>/api/assets/ops/playtest_report_latest.json`
+- TXT(handoff용 로컬): `artifacts/handoff/playtest_report_latest.txt`
 
 2) admin token으로 확인:
 - `<base_url>/ops` (상단 Admin Token 입력)

@@ -7,6 +7,20 @@ import type { QuickRemixResponse } from '../api/types';
 import { apiFetch } from '../lib/api';
 import { useAuthStore } from '../stores/auth';
 
+const PLAYTEST_ACTIVE_KEY = 'neuroleague.playtest.active';
+const PLAYTEST_DEMO_REPLAY_ID_KEY = 'neuroleague.playtest.demo_replay_id';
+
+function getPlaytestDemoReplayId(): string | null {
+  try {
+    const active = localStorage.getItem(PLAYTEST_ACTIVE_KEY);
+    if (!active) return null;
+    const rid = (localStorage.getItem(PLAYTEST_DEMO_REPLAY_ID_KEY) || '').trim();
+    return rid || null;
+  } catch {
+    return null;
+  }
+}
+
 function sanitizeNext(nextRaw: string): string {
   const next = (nextRaw || '').trim();
   if (!next) return '/home';
@@ -51,6 +65,17 @@ export const BeatPage: React.FC = () => {
   );
   const ref = useMemo(() => (params.get('ref') || '').trim() || null, [params]);
 
+  const trackPlaytestStep = async (step_id: number, meta: Record<string, unknown>) => {
+    try {
+      await apiFetch('/api/events/track', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'playtest_step_completed', source: 'playtest', meta: { step_id, ...meta } }),
+      });
+    } catch {
+      // best-effort
+    }
+  };
+
   useEffect(() => {
     if (!replayId) {
       setError('Missing replay_id');
@@ -70,6 +95,10 @@ export const BeatPage: React.FC = () => {
     let cancelled = false;
     const run = async () => {
       try {
+        const demo = getPlaytestDemoReplayId();
+        const playtestDemoId = demo && demo === replayId ? demo : null;
+        if (playtestDemoId) void trackPlaytestStep(2, { demo_replay_id: playtestDemoId, replay_id: replayId, src });
+
         let bpToUse: string | null = blueprintId;
         if (quickRemixPreset) {
           setPhase('quick_remix');
@@ -82,6 +111,13 @@ export const BeatPage: React.FC = () => {
           );
           if (cancelled) return;
           bpToUse = qr.blueprint_id;
+          if (playtestDemoId)
+            void trackPlaytestStep(3, {
+              demo_replay_id: playtestDemoId,
+              replay_id: replayId,
+              preset_id: quickRemixPreset,
+              src,
+            });
         }
 
         setPhase('beat');
@@ -101,6 +137,8 @@ export const BeatPage: React.FC = () => {
           const m = await apiFetch<MatchDetail>(`/api/matches/${encodeURIComponent(beat.match_id)}`);
           if (cancelled) return;
           if (m.status === 'done') {
+            if (playtestDemoId)
+              void trackPlaytestStep(4, { demo_replay_id: playtestDemoId, replay_id: replayId, match_id: beat.match_id, src });
             navigate(`/replay/${encodeURIComponent(beat.match_id)}?reply_to=${encodeURIComponent(replayId)}`, {
               replace: true,
             });

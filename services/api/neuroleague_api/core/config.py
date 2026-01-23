@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     rate_limit_follow_per_minute_ip: int = 120
     rate_limit_follow_per_hour_ip: int = 2000
 
+    rate_limit_reports_create_per_minute: int = 6
+    rate_limit_reports_create_per_hour: int = 60
+    rate_limit_reports_create_per_minute_ip: int = 30
+    rate_limit_reports_create_per_hour_ip: int = 300
+
     rate_limit_blueprint_fork_per_minute: int = 12
     rate_limit_blueprint_fork_per_hour: int = 200
     rate_limit_blueprint_fork_per_minute_ip: int = 60
@@ -107,6 +112,9 @@ class Settings(BaseSettings):
 
     # Optional: seed demo content on boot (safe, idempotent).
     seed_on_boot: bool = False
+
+    # Preview hardening (public preview / staging): disable expensive public work by default.
+    preview_mode: bool = False
 
     # Demo mode (Steam Next Fest / onboarding).
     demo_mode: bool = False

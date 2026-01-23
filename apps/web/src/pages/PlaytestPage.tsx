@@ -17,6 +17,8 @@ type DemoIds = {
 };
 
 const DEVICE_ID_KEY = 'neuroleague.device_id';
+const PLAYTEST_ACTIVE_KEY = 'neuroleague.playtest.active';
+const PLAYTEST_DEMO_REPLAY_ID_KEY = 'neuroleague.playtest.demo_replay_id';
 
 function getOrCreateDeviceId(): string {
   const existing = localStorage.getItem(DEVICE_ID_KEY);
@@ -27,6 +29,20 @@ function getOrCreateDeviceId(): string {
       : `dev_${Math.random().toString(16).slice(2)}${Date.now().toString(16)}`;
   localStorage.setItem(DEVICE_ID_KEY, id);
   return id;
+}
+
+function setPlaytestContext(demoReplayId: string | null): void {
+  try {
+    if (!demoReplayId) {
+      localStorage.removeItem(PLAYTEST_ACTIVE_KEY);
+      localStorage.removeItem(PLAYTEST_DEMO_REPLAY_ID_KEY);
+      return;
+    }
+    localStorage.setItem(PLAYTEST_ACTIVE_KEY, '1');
+    localStorage.setItem(PLAYTEST_DEMO_REPLAY_ID_KEY, demoReplayId);
+  } catch {
+    // ignore
+  }
 }
 
 export const PlaytestPage: React.FC = () => {
@@ -78,6 +94,9 @@ export const PlaytestPage: React.FC = () => {
   }, []);
 
   const demoReplayId = useMemo(() => (demoIds?.clip_replay_id || '').trim() || null, [demoIds?.clip_replay_id]);
+  useEffect(() => {
+    setPlaytestContext(demoReplayId);
+  }, [demoReplayId]);
   const demoClipUrl = useMemo(() => {
     if (!demoReplayId) return null;
     const sp = new URLSearchParams();

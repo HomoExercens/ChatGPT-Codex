@@ -30,7 +30,8 @@ Named Tunnel 생성/적용은 아래 값이 **모두** 있을 때만 실행합�
 - `TUNNEL_SERVICE_URL` (default: `http://127.0.0.1:3000`)
 
 ## 2) 실행(스크립트)
-레포에 포함된 템플릿 스크립트:
+### 2-A) 템플릿 스크립트(API token, 비대화형)
+레포에 포함된 템플릿 스크립트(Cloudflare API 기반):
 - `scripts/cloudflare_named_tunnel.sh`
 
 예시:
@@ -47,7 +48,41 @@ export TUNNEL_SERVICE_URL="http://127.0.0.1:3000"
 이 스크립트는:
 - Named Tunnel을 생성(또는 기존 tunnel 조회)
 - `PREVIEW_DOMAIN`에 대한 DNS(CNAME → `<tunnel_id>.cfargotunnel.com`)를 생성/업데이트
-- `~/.cloudflared/` 아래에 credentials/config 파일을 작성
+- `~/.cloudflared/` 아래에 credentials/config 파일을 작성(`*.json`, `*.yml`)
+
+### 2-B) 수동 CLI(cloudflared, 대화형)
+Cloudflare API 토큰 없이도 “로컬에서” Named Tunnel을 만들 수 있습니다(브라우저 로그인 필요).
+
+1) 로그인(브라우저가 열리며 승인 필요):
+```bash
+cloudflared login
+```
+
+2) tunnel 생성:
+```bash
+cloudflared tunnel create neuroleague-preview
+```
+
+3) DNS 라우트 생성(Cloudflare DNS zone 기준):
+```bash
+cloudflared tunnel route dns neuroleague-preview "${PREVIEW_DOMAIN}"
+```
+
+4) config.yml 작성(예: `~/.cloudflared/neuroleague-preview.yml`):
+```yaml
+tunnel: <tunnel_uuid>
+credentials-file: /home/<you>/.cloudflared/<tunnel_uuid>.json
+
+ingress:
+  - hostname: <PREVIEW_DOMAIN>
+    service: http://127.0.0.1:3000
+  - service: http_status:404
+```
+
+5) 터널 실행:
+```bash
+cloudflared tunnel --config ~/.cloudflared/neuroleague-preview.yml run
+```
 
 ## 3) 로컬 앱 실행(중요)
 OG meta의 절대 URL 정합성을 위해, **항상** 외부 base URL을 지정하세요:
@@ -72,4 +107,3 @@ curl -fsS "$BASE/s/clip/$(curl -fsS "$BASE/api/assets/ops/demo_ids.json" | pytho
 ## 5) 운영 팁(권장)
 - `cloudflared`는 시스템 서비스(systemd)로 띄워 “항상 켜져 있는” 프리뷰를 만들 수 있습니다.
 - 도메인/VPS/SSH가 준비되면, Named Tunnel 대신 `docker-compose.deploy.yml` 기반 VPS 배포로 전환하는 것이 운영/관측/백업 측면에서 더 낫습니다. (`docs/RUNBOOK_DEPLOY.md`)
-
