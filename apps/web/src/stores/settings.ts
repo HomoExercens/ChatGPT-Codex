@@ -8,12 +8,16 @@ type SettingsState = {
   contrast: number;
   reduceMotion: boolean;
   colorblind: boolean;
+  soundEnabled: boolean;
+  hapticsEnabled: boolean;
 
   setLanguage: (language: Language) => void;
   setFontScale: (fontScale: number) => void;
   setContrast: (contrast: number) => void;
   setReduceMotion: (reduceMotion: boolean) => void;
   setColorblind: (colorblind: boolean) => void;
+  setSoundEnabled: (soundEnabled: boolean) => void;
+  setHapticsEnabled: (hapticsEnabled: boolean) => void;
 };
 
 const STORAGE_KEY = 'neuroleague.settings';
@@ -25,20 +29,25 @@ function loadInitial(): Omit<
   | 'setContrast'
   | 'setReduceMotion'
   | 'setColorblind'
+  | 'setSoundEnabled'
+  | 'setHapticsEnabled'
 > {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {
-    // ignore
-  }
-  return {
-    language: 'ko',
+  const defaults = {
+    language: 'ko' as const,
     fontScale: 1,
     contrast: 1,
     reduceMotion: false,
     colorblind: false,
+    soundEnabled: false,
+    hapticsEnabled: true,
   };
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return { ...defaults, ...(JSON.parse(raw) as Partial<typeof defaults>) };
+  } catch {
+    // ignore
+  }
+  return defaults;
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -63,5 +72,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set({ colorblind });
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), colorblind }));
   },
+  setSoundEnabled: (soundEnabled) => {
+    set({ soundEnabled });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), soundEnabled }));
+  },
+  setHapticsEnabled: (hapticsEnabled) => {
+    set({ hapticsEnabled });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), hapticsEnabled }));
+  },
 }));
-

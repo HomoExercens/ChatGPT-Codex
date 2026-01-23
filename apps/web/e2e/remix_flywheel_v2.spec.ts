@@ -22,8 +22,8 @@ test('share landing Beat This → Replay shows Reply share CTA, and Replies appe
   await beatLink.click();
 
   await page.waitForURL('**/replay/**', { timeout: 180_000 });
-  await expect(page.getByRole('button', { name: 'Share Reply Clip' })).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByRole('link', { name: 'View Original' })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole('button', { name: 'Share Reply Clip' }).first()).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole('link', { name: 'View Original' }).first()).toBeVisible({ timeout: 60_000 });
 
   // v3: reactions on reply clip.
   const upReaction = page.getByRole('button', { name: /👍/ }).first();
@@ -44,8 +44,7 @@ test('share landing Beat This → Replay shows Reply share CTA, and Replies appe
     localStorage.setItem('neuroleague.token', String(tok));
   }, loginJson.access_token);
 
-  await page.goto('/home');
-  const bell = page.getByRole('button', { name: 'Notifications' });
-  await expect(bell).toBeVisible({ timeout: 60_000 });
-  await expect(bell.locator('span')).toBeVisible({ timeout: 60_000 });
+  await page.goto('/inbox');
+  await expect(page.getByRole('heading', { name: /Inbox/i }).first()).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('div.divide-y').locator('button').first()).toBeVisible({ timeout: 60_000 });
 });

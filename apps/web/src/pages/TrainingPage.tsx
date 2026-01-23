@@ -6,6 +6,7 @@ import { Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis
 
 import { Button, Card, CardContent, CardHeader, CardTitle, Slider } from '../components/ui';
 import { apiFetch } from '../lib/api';
+import { useLabsEnabled } from '../lib/labs';
 import { TRANSLATIONS } from '../lib/translations';
 import { useSettingsStore } from '../stores/settings';
 import type { Mode } from '../api/types';
@@ -73,6 +74,37 @@ export const TrainingPage: React.FC = () => {
   const queryClient = useQueryClient();
   const lang = useSettingsStore((s) => s.language);
   const t = TRANSLATIONS[lang].common;
+  const labsEnabled = useLabsEnabled();
+
+  if (!labsEnabled) {
+    return (
+      <div className="max-w-xl mx-auto">
+        <Card>
+          <CardHeader>
+            <CardTitle>{lang === 'ko' ? 'Labs: 훈련 기능 비활성' : 'Labs: Training disabled'}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="text-sm text-slate-600">
+              {lang === 'ko'
+                ? '프리뷰 기본 루프(Play → Beat This → Reply)에 필요한 기능이 아니므로 기본 UI에서 숨겨져 있습니다.'
+                : 'Training is hidden by default in preview. It’s not required for the core loop (Play → Beat This → Reply).'}
+            </div>
+            <div className="text-xs text-slate-500 font-mono">
+              {lang === 'ko'
+                ? 'Labs를 켜려면: URL에 ?labs=1 추가 또는 VITE_ENABLE_LABS=1'
+                : 'Enable labs: add ?labs=1 to the URL or set VITE_ENABLE_LABS=1'}
+            </div>
+            <div className="flex gap-2 pt-2">
+              <Button onClick={() => navigate('/play')}>{lang === 'ko' ? '플레이로' : 'Go to Play'}</Button>
+              <Button variant="secondary" onClick={() => navigate('/me')}>
+                {lang === 'ko' ? '프로필' : 'Profile'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const [activeTab, setActiveTab] = useState<'overview' | 'runs'>('overview');
   const [mode, setMode] = useState<Mode>('1v1');

@@ -35,7 +35,7 @@ export const LoginPage: React.FC = () => {
     try {
       const resp = await apiFetch<AuthResponse>('/api/auth/guest', { method: 'POST' });
       setToken(resp.access_token);
-      navigate('/home');
+      navigate('/play');
     } catch (e) {
       setError(String(e));
     } finally {
@@ -44,7 +44,7 @@ export const LoginPage: React.FC = () => {
   };
 
   const doDiscord = () => {
-    const next = '/home';
+    const next = '/play';
     window.location.href = `/api/auth/discord/start?next=${encodeURIComponent(next)}`;
   };
 
@@ -57,7 +57,7 @@ export const LoginPage: React.FC = () => {
         body: JSON.stringify({ username }),
       });
       setToken(resp.access_token);
-      navigate('/home');
+      navigate('/play');
     } catch (e) {
       setError(String(e));
     } finally {

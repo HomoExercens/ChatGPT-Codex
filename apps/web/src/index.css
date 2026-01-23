@@ -2,28 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --nl-brand-50: 239 246 255;
-  --nl-brand-100: 219 234 254;
-  --nl-brand-200: 191 219 254;
-  --nl-brand-300: 147 197 253;
-  --nl-brand-400: 96 165 250;
-  --nl-brand-500: 59 130 246;
-  --nl-brand-600: 37 99 235;
-  --nl-brand-700: 29 78 216;
-  --nl-brand-900: 30 58 138;
-
-  --nl-lab-50: 248 250 252;
-  --nl-lab-900: 15 23 42;
-
-  --nl-accent-200: 221 214 254;
-  --nl-accent-500: 139 92 246;
-  --nl-accent-700: 109 40 217;
-
-  --nl-font-scale: 1;
-  --nl-contrast: 1;
-}
-
 html {
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
   font-size: calc(16px * var(--nl-font-scale));
@@ -58,9 +36,6 @@ body {
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
-}
-.pb-safe {
-  padding-bottom: env(safe-area-inset-bottom);
 }
 .line-clamp-2 {
   display: -webkit-box;

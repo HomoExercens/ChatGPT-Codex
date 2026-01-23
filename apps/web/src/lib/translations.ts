@@ -3,6 +3,7 @@ export type Language = 'ko' | 'en';
 export const TRANSLATIONS = {
   ko: {
     nav: {
+      play: '플레이',
       dashboard: '연구소 홈',
       training: '훈련실',
       forge: '청사진 공방',
@@ -13,6 +14,8 @@ export const TRANSLATIONS = {
       replay: '리플레이',
       analytics: '메타 분석',
       settings: '설정',
+      inbox: '알림함',
+      profile: '내 정보',
       more: '더보기',
       meta: '메타',
     },
@@ -112,6 +115,7 @@ export const TRANSLATIONS = {
   },
   en: {
     nav: {
+      play: 'Play',
       dashboard: 'Home',
       training: 'Training Lab',
       forge: 'Blueprint Forge',
@@ -122,6 +126,8 @@ export const TRANSLATIONS = {
       replay: 'Replay',
       analytics: 'Analytics',
       settings: 'Settings',
+      inbox: 'Inbox',
+      profile: 'Me',
       more: 'More',
       meta: 'Meta',
     },

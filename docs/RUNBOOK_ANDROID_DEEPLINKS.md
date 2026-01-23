@@ -35,7 +35,7 @@ Edit host + default URL:
 
 - `apps/android-twa/app/src/main/res/values/strings.xml`
   - `host` (example: `neuroleague.example.com`)
-  - `default_url` (example: `https://neuroleague.example.com/`)
+  - `default_url` (example: `https://neuroleague.example.com/play`)
 
 Build a debug APK from Android Studio (or CI) and install on device/emulator.
 

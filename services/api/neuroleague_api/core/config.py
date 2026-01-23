@@ -72,6 +72,11 @@ class Settings(BaseSettings):
     rate_limit_blueprint_fork_per_minute_ip: int = 60
     rate_limit_blueprint_fork_per_hour_ip: int = 1200
 
+    rate_limit_blueprint_auto_tune_per_minute: int = 6
+    rate_limit_blueprint_auto_tune_per_hour: int = 120
+    rate_limit_blueprint_auto_tune_per_minute_ip: int = 20
+    rate_limit_blueprint_auto_tune_per_hour_ip: int = 400
+
     rate_limit_ranked_queue_per_minute: int = 6
     rate_limit_ranked_queue_per_hour: int = 80
     rate_limit_ranked_queue_per_minute_ip: int = 30

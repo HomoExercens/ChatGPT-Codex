@@ -20,6 +20,7 @@ from neuroleague_api.blueprint_lineage import (
     ensure_persisted_root_and_depth,
     increment_fork_counts,
 )
+from neuroleague_api.auto_tune import AutoTunePreset, auto_tune as _auto_tune
 from neuroleague_api.models import Blueprint, Event, User
 from neuroleague_sim.canonical import canonical_json_bytes, canonical_sha256
 from neuroleague_sim.models import BlueprintSpec
@@ -612,6 +613,132 @@ def fork_blueprint(
     except Exception:  # noqa: BLE001
         pass
     return _out_from_bp(db, bp=bp)
+
+
+class AutoTuneRequest(BaseModel):
+    preset: AutoTunePreset
+    note: str | None = Field(default=None, max_length=280)
+
+
+class AutoTuneResponse(BaseModel):
+    ok: bool = True
+    blueprint: BlueprintOut
+    parent_blueprint_id: str
+    preset: str
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("/{blueprint_id}/auto_tune", response_model=AutoTuneResponse)
+def auto_tune_blueprint(
+    request: Request,
+    blueprint_id: str,
+    req: AutoTuneRequest,
+    user_id: str = CurrentUserId,
+    db: Session = DBSession,
+) -> AutoTuneResponse:
+    src = db.get(Blueprint, blueprint_id)
+    if not src or src.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Blueprint not found")
+
+    settings = Settings()
+    check_rate_limit_dual(
+        user_id=user_id,
+        request=request,
+        action="blueprint_auto_tune",
+        per_minute_user=int(settings.rate_limit_blueprint_auto_tune_per_minute),
+        per_hour_user=int(settings.rate_limit_blueprint_auto_tune_per_hour),
+        per_minute_ip=int(settings.rate_limit_blueprint_auto_tune_per_minute_ip),
+        per_hour_ip=int(settings.rate_limit_blueprint_auto_tune_per_hour_ip),
+        extra_detail={"blueprint_id": str(src.id), "preset": str(req.preset)},
+    )
+
+    spec = BlueprintSpec.model_validate(orjson.loads(src.spec_json))
+    tuned_spec: BlueprintSpec = spec
+    meta: dict[str, Any] = {}
+    try:
+        tuned_spec, meta = _auto_tune(
+            blueprint_id=str(src.id),
+            spec=spec,
+            preset=req.preset,
+            seed_count=3,
+        )
+    except Exception as e:  # noqa: BLE001
+        tuned_spec = spec
+        meta = {"preset": str(req.preset), "error": str(e), "changes": []}
+
+    name_suffix = f"Auto Tune:{str(req.preset).upper()}"
+    name = f"{src.name} ({name_suffix})"
+    name = name[:64]
+    note = (req.note or "").strip()[:280] if req.note else None
+
+    root_id, src_depth, chain_ids = compute_root_and_depth(db, blueprint=src)
+    if str(getattr(src, "fork_root_blueprint_id", "") or "").strip() != str(root_id):
+        ensure_persisted_root_and_depth(
+            db, blueprint_id=str(src.id), root_blueprint_id=str(root_id), depth=src_depth
+        )
+
+    now = datetime.now(UTC)
+    spec_json = canonical_json_bytes(tuned_spec.model_dump()).decode("utf-8")
+    spec_hash = canonical_sha256(tuned_spec.model_dump())
+    build_code = encode_build_code(spec=tuned_spec, pack_hash=_active_pack_hash())
+
+    bp = Blueprint(
+        id=f"bp_{uuid4().hex}",
+        user_id=user_id,
+        name=name,
+        mode=src.mode,
+        ruleset_version=src.ruleset_version,
+        status="draft",
+        spec_json=spec_json,
+        spec_hash=spec_hash,
+        meta_json=orjson.dumps(
+            {
+                "source": {
+                    "type": "auto_tune",
+                    "parent_blueprint_id": src.id,
+                    "preset": str(req.preset),
+                    **({"note": note} if note else {}),
+                    "meta": meta,
+                }
+            }
+        ).decode("utf-8"),
+        forked_from_id=src.id,
+        fork_root_blueprint_id=str(root_id),
+        fork_depth=int(src_depth) + 1,
+        fork_count=0,
+        source_replay_id=None,
+        build_code=build_code,
+        submitted_at=None,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(bp)
+    increment_fork_counts(db, blueprint_ids=chain_ids, delta=1)
+    db.commit()
+
+    try:
+        log_event(
+            db,
+            type="auto_tune_created",
+            user_id=user_id,
+            request=request,
+            payload={
+                "parent_blueprint_id": src.id,
+                "blueprint_id": bp.id,
+                "preset": str(req.preset),
+            },
+        )
+        db.commit()
+    except Exception:  # noqa: BLE001
+        pass
+
+    return AutoTuneResponse(
+        ok=True,
+        blueprint=_out_from_bp(db, bp=bp),
+        parent_blueprint_id=str(src.id),
+        preset=str(req.preset),
+        meta=meta if isinstance(meta, dict) else {},
+    )
 
 
 class LineageNode(BaseModel):

@@ -159,3 +159,60 @@ export const Slider: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = (pr
 export const Skeleton: React.FC<{ className?: string }> = ({ className = '' }) => (
   <div className={`animate-pulse bg-slate-200 rounded-lg ${className}`}></div>
 );
+
+export const Chip: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = '' }) => (
+  <span
+    className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-white/10 text-white border border-white/10 ${className}`}
+  >
+    {children}
+  </span>
+);
+
+export const ProgressBar: React.FC<{ value: number; max?: number; className?: string }> = ({
+  value,
+  max = 100,
+  className = '',
+}) => {
+  const pct = max > 0 ? Math.max(0, Math.min(1, value / max)) : 0;
+  return (
+    <div className={`w-full h-2 rounded-full bg-slate-200 overflow-hidden ${className}`}>
+      <div className="h-full bg-brand-600" style={{ width: `${pct * 100}%` }} />
+    </div>
+  );
+};
+
+export const IconButton: React.FC<ButtonProps & { label: string }> = ({ label, children, ...props }) => (
+  <Button size="icon" aria-label={label} {...props}>
+    {children}
+  </Button>
+);
+
+export const BottomSheet: React.FC<{
+  open: boolean;
+  title?: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}> = ({ open, title, onClose, children }) => {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[120] bg-black/60 flex items-end justify-center" onClick={onClose}>
+      <div
+        className="w-full max-w-md bg-white rounded-t-3xl border border-slate-200 shadow-2xl overflow-hidden pb-safe"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="relative px-4 pt-3 pb-2 border-b border-slate-100 flex items-center justify-between">
+          <div className="w-10 h-1.5 rounded-full bg-slate-200 mx-auto absolute left-1/2 -translate-x-1/2 top-2" />
+          <div className="font-extrabold text-slate-900">{title ?? ''}</div>
+          <button
+            type="button"
+            className="text-xs font-semibold text-slate-500 hover:text-slate-900 px-2 py-1 rounded-lg"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+        <div className="px-4 py-4">{children}</div>
+      </div>
+    </div>
+  );
+};

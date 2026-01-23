@@ -31,7 +31,7 @@ test('playtest page → demo clip → Quick Remix → Replay → Replies visible
   await quick.click();
 
   await page.waitForURL('**/replay/**', { timeout: 180_000 });
-  await expect(page.getByRole('button', { name: 'Share Reply Clip' })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole('button', { name: 'Share Reply Clip' }).first()).toBeVisible({ timeout: 60_000 });
 
   // v3: reactions on reply clip.
   const upReaction = page.getByRole('button', { name: /👍/ }).first();
@@ -43,4 +43,3 @@ test('playtest page → demo clip → Quick Remix → Replay → Replies visible
   await expect(page.getByRole('heading', { name: 'Replies' })).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('a.reply-card').first()).toBeVisible({ timeout: 60_000 });
 });
-

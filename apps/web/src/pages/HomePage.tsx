@@ -7,6 +7,7 @@ import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '../comp
 import { apiFetch } from '../lib/api';
 import { getExperimentVariant, useExperiments } from '../lib/experiments';
 import { useMetaFlags } from '../lib/flags';
+import { useLabsEnabled } from '../lib/labs';
 import { readShareVariants } from '../lib/shareVariants';
 import { TRANSLATIONS } from '../lib/translations';
 import { useSettingsStore } from '../stores/settings';
@@ -36,6 +37,7 @@ export const HomePage: React.FC = () => {
 
   const { data: flags } = useMetaFlags();
   const demoMode = Boolean(flags?.demo_mode);
+  const labsEnabled = useLabsEnabled();
 
   const { data: summary } = useQuery({
     queryKey: ['homeSummary'],
@@ -266,15 +268,17 @@ export const HomePage: React.FC = () => {
                     </Button>
                   </>
                 )}
-                <Button
-                  variant="secondary"
-                  size="lg"
-                  className="bg-white/10 text-white border-white/20 hover:bg-white/15"
-                  onClick={() => navigate('/training')}
-                  type="button"
-                >
-                  {demoMode ? (lang === 'ko' ? '나중에 (훈련)' : 'Training (Later)') : t.train}
-                </Button>
+                {labsEnabled ? (
+                  <Button
+                    variant="secondary"
+                    size="lg"
+                    className="bg-white/10 text-white border-white/20 hover:bg-white/15"
+                    onClick={() => navigate('/training')}
+                    type="button"
+                  >
+                    {demoMode ? (lang === 'ko' ? '나중에 (훈련)' : 'Training (Later)') : t.train}
+                  </Button>
+                ) : null}
               </div>
             </div>
 

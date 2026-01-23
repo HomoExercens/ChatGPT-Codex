@@ -9,7 +9,7 @@ import { useAuthStore } from '../stores/auth';
 import { useSettingsStore } from '../stores/settings';
 
 type Health = { status: string; ruleset_version: string };
-type Me = { user_id: string; display_name: string; is_guest: bool; discord_connected?: boolean; avatar_url?: string | null };
+type Me = { user_id: string; display_name: string; is_guest: boolean; discord_connected?: boolean; avatar_url?: string | null };
 
 export const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -21,10 +21,14 @@ export const SettingsPage: React.FC = () => {
   const contrast = useSettingsStore((s) => s.contrast);
   const reduceMotion = useSettingsStore((s) => s.reduceMotion);
   const colorblind = useSettingsStore((s) => s.colorblind);
+  const soundEnabled = useSettingsStore((s) => s.soundEnabled);
+  const hapticsEnabled = useSettingsStore((s) => s.hapticsEnabled);
   const setFontScale = useSettingsStore((s) => s.setFontScale);
   const setContrast = useSettingsStore((s) => s.setContrast);
   const setReduceMotion = useSettingsStore((s) => s.setReduceMotion);
   const setColorblind = useSettingsStore((s) => s.setColorblind);
+  const setSoundEnabled = useSettingsStore((s) => s.setSoundEnabled);
+  const setHapticsEnabled = useSettingsStore((s) => s.setHapticsEnabled);
 
   const setToken = useAuthStore((s) => s.setToken);
   const token = useAuthStore((s) => s.token);
@@ -43,7 +47,7 @@ export const SettingsPage: React.FC = () => {
 
   const connectDiscord = async () => {
     if (!token) return;
-    const resp = await fetch(`/api/auth/discord/start?format=json&next=${encodeURIComponent('/home')}`, {
+    const resp = await fetch(`/api/auth/discord/start?format=json&next=${encodeURIComponent('/me')}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!resp.ok) throw new Error(`discord_start_failed: ${resp.status}`);
@@ -105,6 +109,32 @@ export const SettingsPage: React.FC = () => {
               <span className={`block w-5 h-5 bg-white rounded-full shadow transform transition-transform ${colorblind ? 'translate-x-5' : 'translate-x-1'}`} />
             </button>
           </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-700">{lang === 'ko' ? '사운드' : 'Sound'}</span>
+            <button
+              type="button"
+              className={`w-12 h-7 rounded-full border transition-colors ${soundEnabled ? 'bg-brand-600 border-brand-600' : 'bg-slate-200 border-slate-300'}`}
+              role="switch"
+              aria-checked={soundEnabled}
+              onClick={() => setSoundEnabled(!soundEnabled)}
+            >
+              <span className={`block w-5 h-5 bg-white rounded-full shadow transform transition-transform ${soundEnabled ? 'translate-x-5' : 'translate-x-1'}`} />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-700">{lang === 'ko' ? '진동' : 'Haptics'}</span>
+            <button
+              type="button"
+              className={`w-12 h-7 rounded-full border transition-colors ${hapticsEnabled ? 'bg-brand-600 border-brand-600' : 'bg-slate-200 border-slate-300'}`}
+              role="switch"
+              aria-checked={hapticsEnabled}
+              onClick={() => setHapticsEnabled(!hapticsEnabled)}
+            >
+              <span className={`block w-5 h-5 bg-white rounded-full shadow transform transition-transform ${hapticsEnabled ? 'translate-x-5' : 'translate-x-1'}`} />
+            </button>
+          </div>
         </CardContent>
       </Card>
 
@@ -158,7 +188,7 @@ export const SettingsPage: React.FC = () => {
             variant="destructive"
             onClick={() => {
               setToken(null);
-              navigate('/');
+              navigate('/play');
             }}
           >
             {t.logout}

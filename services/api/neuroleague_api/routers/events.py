@@ -36,6 +36,9 @@ EventType = Literal[
     "first_replay_open",
     "replay_open",
     "blueprint_fork",
+    # Mega-hit FTUE (mobile).
+    "play_open",
+    "ftue_completed",
     # Playtest / Seed Pack.
     "playtest_opened",
     "playtest_step_completed",
@@ -52,8 +55,11 @@ EventType = Literal[
     # Remix flywheel v3.
     "reaction_click",
     "notification_opened",
+    "quick_remix_click",
     "quick_remix_selected",
     "quick_remix_applied",
+    "auto_tune_click",
+    "auto_tune_success",
     "blueprint_submit",
     "ranked_queue",
     "ranked_done",

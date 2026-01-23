@@ -46,11 +46,21 @@ FUNNEL_STEPS_SHARE_V1: list[str] = [
 FUNNEL_CLIPS_V1: str = "clips_v1"
 FUNNEL_STEPS_CLIPS_V1: list[str] = [
     "clip_view",
+    "clip_view_3s",
     "clip_completion",
     "clip_share",
     "clip_fork_click",
     "clip_open_ranked",
     "ranked_done",
+]
+
+FUNNEL_FTUE_V1: str = "ftue_v1"
+FUNNEL_STEPS_FTUE_V1: list[str] = [
+    "play_open",
+    "clip_view_3s",
+    "beat_this_click",
+    "match_done",
+    "reply_clip_shared",
 ]
 
 FUNNEL_REMIX_V1: str = "remix_v1"
@@ -107,6 +117,7 @@ FUNNEL_DEFS: dict[str, list[str]] = {
     FUNNEL_GROWTH_V1: FUNNEL_STEPS_GROWTH_V1,
     FUNNEL_SHARE_V1: FUNNEL_STEPS_SHARE_V1,
     FUNNEL_CLIPS_V1: FUNNEL_STEPS_CLIPS_V1,
+    FUNNEL_FTUE_V1: FUNNEL_STEPS_FTUE_V1,
     FUNNEL_REMIX_V1: FUNNEL_STEPS_REMIX_V1,
     FUNNEL_REMIX_V2: FUNNEL_STEPS_REMIX_V2,
     FUNNEL_REMIX_V3: FUNNEL_STEPS_REMIX_V3,
@@ -225,6 +236,12 @@ def rollup_growth_metrics(
                         "clip_open_ranked",
                         "clip_fork_click",
                         "clip_remix_click",
+                        # Mega-hit FTUE (mobile)
+                        "play_open",
+                        "ftue_completed",
+                        "quick_remix_click",
+                        "auto_tune_click",
+                        "auto_tune_success",
                         # Remix v2/v3 (reply-chain / social graph)
                         "beat_this_click",
                         "challenge_created",
@@ -254,6 +271,16 @@ def rollup_growth_metrics(
             unique_by_type[str(ev.type)].add(key)
             if str(ev.type) == "share_cta_click":
                 unique_by_type["start_click"].add(key)
+            if str(ev.type) == "clip_view":
+                meta = payload.get("meta")
+                if isinstance(meta, dict):
+                    raw = meta.get("watched_ms")
+                    try:
+                        watched_ms = int(raw) if raw is not None else 0
+                    except Exception:  # noqa: BLE001
+                        watched_ms = 0
+                    if watched_ms >= 3000:
+                        unique_by_type["clip_view_3s"].add(key)
             if str(ev.type) == "playtest_step_completed":
                 meta = payload.get("meta")
                 if isinstance(meta, dict):
@@ -361,6 +388,29 @@ def rollup_growth_metrics(
         add_metric(
             "playtest_opened_users",
             float(len(unique_by_type.get("playtest_opened", set()))),
+        )
+        add_metric(
+            "play_open_users", float(len(unique_by_type.get("play_open", set())))
+        )
+        add_metric(
+            "ftue_completed_users",
+            float(len(unique_by_type.get("ftue_completed", set()))),
+        )
+        add_metric(
+            "clip_view_3s_users",
+            float(len(unique_by_type.get("clip_view_3s", set()))),
+        )
+        add_metric(
+            "quick_remix_click_users",
+            float(len(unique_by_type.get("quick_remix_click", set()))),
+        )
+        add_metric(
+            "auto_tune_click_users",
+            float(len(unique_by_type.get("auto_tune_click", set()))),
+        )
+        add_metric(
+            "auto_tune_success_users",
+            float(len(unique_by_type.get("auto_tune_success", set()))),
         )
         add_metric(
             "playtest_completed_users",

@@ -1,13 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { EyeOff, Flag, Heart, MessageCircle, Share2, Sparkles, Trophy, Wand2, Zap } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Sparkles, Volume2, VolumeX, Wand2, Zap } from 'lucide-react';
 
-import { Badge, Button } from '../components/ui';
-import type { BlueprintOut, ClipEventResponse, ClipFeedItem, ClipFeedOut, Mode, QueueResponse, RepliesResponse } from '../api/types';
+import { CreatureSilhouettes } from '../components/CreatureSilhouettes';
+import { Badge, BottomSheet, Button } from '../components/ui';
+import type { ClipEventResponse, ClipFeedItem, ClipFeedOut, Mode, RepliesResponse } from '../api/types';
 import { apiFetch } from '../lib/api';
 import { getExperimentVariant, useExperiments } from '../lib/experiments';
-import { readShareVariants } from '../lib/shareVariants';
+import { tapJuice } from '../lib/juice';
+import { toast } from '../lib/toast';
 import { TRANSLATIONS } from '../lib/translations';
 import { appendUtmParams } from '../lib/utm';
 import { useSettingsStore } from '../stores/settings';
@@ -15,9 +17,6 @@ import { useSettingsStore } from '../stores/settings';
 type SlideState = {
   liked?: boolean;
   likes?: number;
-  forkedBlueprintId?: string;
-  pending?: 'fork' | 'rank' | 'like' | 'share' | null;
-  error?: string | null;
 };
 
 type ClipShareUrlOut = {
@@ -30,23 +29,27 @@ type ClipShareUrlOut = {
 };
 
 const clampIndex = (idx: number, total: number) => Math.max(0, Math.min(total - 1, idx));
+const FTUE_KEY = 'neuroleague.ftue.play.v1.dismissed';
 
 export const ClipsPage: React.FC = () => {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const lang = useSettingsStore((s) => s.language);
   const reduceMotion = useSettingsStore((s) => s.reduceMotion);
-  const t = useMemo(() => TRANSLATIONS[lang].common, [lang]);
+  const soundEnabled = useSettingsStore((s) => s.soundEnabled);
+  const setSoundEnabled = useSettingsStore((s) => s.setSoundEnabled);
   const nav = useMemo(() => TRANSLATIONS[lang].nav, [lang]);
+  const [ftueOpen, setFtueOpen] = useState(() => {
+    try {
+      return localStorage.getItem(FTUE_KEY) !== '1';
+    } catch {
+      return true;
+    }
+  });
 
   const { data: experiments } = useExperiments();
   const feedAlgo = useMemo(() => {
     const v = getExperimentVariant(experiments, 'clips_feed_algo', 'v2');
     return v === 'v3' ? 'v3' : 'v2';
-  }, [experiments]);
-  const shareCta = useMemo(() => {
-    const v = getExperimentVariant(experiments, 'share_cta_copy', 'remix');
-    return v === 'beat_this' ? 'beat_this' : 'remix';
   }, [experiments]);
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -97,6 +100,9 @@ export const ClipsPage: React.FC = () => {
   const [activeIndex, setActiveIndex] = useState(0);
   const activeClip = useMemo(() => clips[activeIndex] ?? null, [activeIndex, clips]);
   const viewed = useRef<Set<string>>(new Set());
+  const viewed3s = useRef<Set<string>>(new Set());
+  const view3sTimer = useRef<number | null>(null);
+  const view3sStart = useRef<number>(0);
   const completed = useRef<Set<string>>(new Set());
   const [slideState, setSlideState] = useState<Record<string, SlideState>>({});
   const [quickRemixOpen, setQuickRemixOpen] = useState(false);
@@ -120,7 +126,7 @@ export const ClipsPage: React.FC = () => {
       meta,
     }: {
       replayId: string;
-      type: 'view' | 'like' | 'share' | 'fork_click' | 'open_ranked' | 'completion';
+      type: 'view' | 'like' | 'share' | 'completion';
       meta?: Record<string, unknown>;
     }) =>
       apiFetch<ClipEventResponse>(`/api/clips/${encodeURIComponent(replayId)}/event`, {
@@ -129,50 +135,21 @@ export const ClipsPage: React.FC = () => {
       }),
   });
 
-  const ensureFork = async (item: ClipFeedItem): Promise<string> => {
-    if (!item.blueprint_id) throw new Error('No blueprint attached to this clip');
-    const existing = slideState[item.replay_id]?.forkedBlueprintId;
-    if (existing) return existing;
-    const forked = await apiFetch<BlueprintOut>(`/api/blueprints/${encodeURIComponent(item.blueprint_id)}/fork`, {
+  const playOpenTracked = useRef(false);
+  useEffect(() => {
+    if (playOpenTracked.current) return;
+    playOpenTracked.current = true;
+    apiFetch('/api/events/track', {
       method: 'POST',
       body: JSON.stringify({
-        name: `${item.blueprint_name ?? 'Build'} (Remix)`,
-        source_replay_id: item.replay_id,
-        note: 'clips_feed',
+        type: 'play_open',
+        source: 'play',
+        meta: { mode, sort, feed_algo: feedAlgo },
       }),
+    }).catch(() => {
+      // best-effort
     });
-    setSlideState((s) => ({ ...s, [item.replay_id]: { ...(s[item.replay_id] ?? {}), forkedBlueprintId: forked.id } }));
-    return forked.id;
-  };
-
-  const remixMutation = useMutation({
-    mutationFn: async (item: ClipFeedItem) => {
-      await trackEventMutation.mutateAsync({ replayId: item.replay_id, type: 'fork_click' });
-      const forkedId = await ensureFork(item);
-      return forkedId;
-    },
-    onSuccess: (forkedId) => {
-      navigate(`/forge/${encodeURIComponent(forkedId)}`);
-    },
-  });
-
-  const openRankedMutation = useMutation({
-    mutationFn: async (item: ClipFeedItem) => {
-      await trackEventMutation.mutateAsync({ replayId: item.replay_id, type: 'open_ranked' });
-      const forkedId = await ensureFork(item);
-      await apiFetch<BlueprintOut>(`/api/blueprints/${encodeURIComponent(forkedId)}/submit`, { method: 'POST', body: JSON.stringify({}) });
-      const queued = await apiFetch<QueueResponse>('/api/ranked/queue', {
-        method: 'POST',
-        body: JSON.stringify({ blueprint_id: forkedId, seed_set_count: 1, ...readShareVariants() }),
-      });
-      return { queued, forkedId };
-    },
-    onSuccess: async ({ queued }) => {
-      await queryClient.invalidateQueries({ queryKey: ['matches', mode] });
-      await queryClient.invalidateQueries({ queryKey: ['homeSummary'] });
-      navigate(`/ranked?mode=${encodeURIComponent(mode)}&match_id=${encodeURIComponent(queued.match_id)}&auto=1`);
-    },
-  });
+  }, [feedAlgo, mode, sort]);
 
   useEffect(() => {
     if (!clips.length) return;
@@ -203,7 +180,30 @@ export const ClipsPage: React.FC = () => {
     // fire view event once per session
     if (!viewed.current.has(item.replay_id)) {
       viewed.current.add(item.replay_id);
-      trackEventMutation.mutate({ replayId: item.replay_id, type: 'view' });
+      trackEventMutation.mutate({
+        replayId: item.replay_id,
+        type: 'view',
+        meta: { surface: 'play', mode, sort, feed_algo: feedAlgo },
+      });
+    }
+
+    // "meaningful view" event with watched_ms (>=3s), used for FTUE funnel coverage.
+    if (view3sTimer.current) {
+      window.clearTimeout(view3sTimer.current);
+      view3sTimer.current = null;
+    }
+    if (!viewed3s.current.has(item.replay_id)) {
+      view3sStart.current = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      view3sTimer.current = window.setTimeout(() => {
+        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        const watchedMs = Math.max(0, Math.round(now - view3sStart.current));
+        viewed3s.current.add(item.replay_id);
+        trackEventMutation.mutate({
+          replayId: item.replay_id,
+          type: 'view',
+          meta: { surface: 'play', mode, sort, feed_algo: feedAlgo, watched_ms: watchedMs },
+        });
+      }, 3000);
     }
 
     // autoplay active video, pause others
@@ -225,7 +225,14 @@ export const ClipsPage: React.FC = () => {
     if (hasNextPage && activeIndex >= clips.length - 4 && !isFetchingNextPage) {
       fetchNextPage();
     }
-  }, [activeIndex, clips, fetchNextPage, hasNextPage, isFetchingNextPage, trackEventMutation]);
+
+    return () => {
+      if (view3sTimer.current) {
+        window.clearTimeout(view3sTimer.current);
+        view3sTimer.current = null;
+      }
+    };
+  }, [activeIndex, clips, feedAlgo, fetchNextPage, hasNextPage, isFetchingNextPage, mode, sort, trackEventMutation]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -256,6 +263,7 @@ export const ClipsPage: React.FC = () => {
         },
       }));
     },
+    onError: (e) => toast.error('Like failed', e instanceof Error ? e.message : String(e)),
   });
 
   const shareMutation = useMutation({
@@ -287,33 +295,16 @@ export const ClipsPage: React.FC = () => {
       }
       return url;
     },
+    onSuccess: () => toast.success(lang === 'ko' ? '링크 복사됨' : 'Link copied'),
+    onError: (e) => toast.error(lang === 'ko' ? '공유 실패' : 'Share failed', e instanceof Error ? e.message : String(e)),
   });
 
-  const hideMutation = useMutation({
-    mutationFn: async (item: ClipFeedItem) =>
-      apiFetch<{ hidden: boolean }>(`/api/clips/${encodeURIComponent(item.replay_id)}/hide`, {
-        method: 'POST',
-        body: JSON.stringify({}),
-      }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['clipsFeed', mode, sort, feedAlgo] });
-    },
-  });
-
-  const reportMutation = useMutation({
-    mutationFn: async ({ target_type, target_id, reason }: { target_type: 'clip' | 'profile' | 'build'; target_id: string; reason: string }) =>
-      apiFetch<{ report_id: string }>('/api/reports', {
-        method: 'POST',
-        body: JSON.stringify({ target_type, target_id, reason }),
-      }),
-  });
-
-  const title = nav.clips ?? (lang === 'ko' ? '클립' : 'Clips');
+  const title = nav.play ?? (lang === 'ko' ? '플레이' : 'Play');
 
   return (
-    <div className="-mx-4 md:-mx-6 -mt-4 md:-mt-6">
-      <div className="relative h-[calc(100vh-64px-96px)] md:h-[calc(100vh-64px-32px)] bg-black overflow-hidden">
-        <div className="absolute top-0 left-0 right-0 z-20 p-4 flex items-center justify-between">
+    <>
+      <div className="relative h-[calc(100dvh-var(--nl-tabbar-h)-env(safe-area-inset-bottom))] bg-black overflow-hidden">
+      <div className="absolute top-0 left-0 right-0 z-20 px-4 pt-[calc(env(safe-area-inset-top)+12px)] pb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="text-white font-extrabold tracking-tight">{title}</div>
             <Badge variant="neutral" className="bg-white/10 text-white border-transparent">
@@ -324,6 +315,21 @@ export const ClipsPage: React.FC = () => {
             </Badge>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="icon"
+              variant="secondary"
+              className="bg-white/10 text-white border-white/20 hover:bg-white/15 rounded-full"
+              onClick={() => {
+                const next = !soundEnabled;
+                setSoundEnabled(next);
+                tapJuice();
+                toast.info(next ? (lang === 'ko' ? '사운드 ON' : 'Sound on') : lang === 'ko' ? '사운드 OFF' : 'Sound off');
+              }}
+              aria-label={soundEnabled ? 'Mute' : 'Unmute'}
+            >
+              {soundEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
+            </Button>
             <Button
               size="sm"
               variant={mode === '1v1' ? 'secondary' : 'outline'}
@@ -363,6 +369,37 @@ export const ClipsPage: React.FC = () => {
           </div>
         </div>
 
+        {ftueOpen ? (
+          <div className="absolute left-4 right-4 z-30 pointer-events-none" style={{ top: `calc(env(safe-area-inset-top) + 64px)` }}>
+            <div className="pointer-events-auto max-w-md bg-black/60 border border-white/10 rounded-2xl p-3 backdrop-blur">
+              <div className="text-white text-sm font-extrabold tracking-tight">
+                {lang === 'ko' ? '2분 루프' : '60s Loop'}
+              </div>
+              <div className="text-white/80 text-xs mt-1">
+                {lang === 'ko'
+                  ? '클립 보기 → Beat This → 내 Reply가 원본에 추가됩니다.'
+                  : 'Watch → Beat This → Your reply appears on the original.'}
+              </div>
+              <div className="mt-2 flex justify-end">
+                <button
+                  type="button"
+                  className="text-xs font-bold px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white"
+                  onClick={() => {
+                    try {
+                      localStorage.setItem(FTUE_KEY, '1');
+                    } catch {
+                      // ignore
+                    }
+                    setFtueOpen(false);
+                  }}
+                >
+                  {lang === 'ko' ? '확인' : 'Got it'}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         <div ref={containerRef} className="h-full overflow-y-scroll snap-y snap-mandatory">
           {clips.length === 0 ? (
             <div className="h-full flex items-center justify-center text-white/70">
@@ -390,11 +427,17 @@ export const ClipsPage: React.FC = () => {
                       src={item.vertical_mp4_url ?? undefined}
                       className="h-full w-full object-contain"
                       playsInline
-                      muted
+                      muted={!soundEnabled}
                       loop
                       preload="metadata"
                       controls={false}
                       aria-label="Clip video"
+                      onClick={() => {
+                        if (soundEnabled) return;
+                        setSoundEnabled(true);
+                        tapJuice();
+                        toast.info(lang === 'ko' ? '사운드 ON' : 'Sound on');
+                      }}
                       onTimeUpdate={(e) => {
                         if (!isActive) return;
                         if (completed.current.has(item.replay_id)) return;
@@ -427,13 +470,21 @@ export const ClipsPage: React.FC = () => {
                           {item.mode}
                         </Badge>
                       </div>
-                      <div className="text-white text-lg font-extrabold leading-tight">
-                        {item.blueprint_name ?? 'Untitled Build'}
-                      </div>
-                      <div className="flex flex-wrap gap-1">
-                        {(item.tags ?? []).slice(0, 4).map((tag) => (
-                          <Badge
-                            key={tag}
+	                      <div className="text-white text-lg font-extrabold leading-tight">
+	                        {item.blueprint_name ?? 'Untitled Build'}
+	                      </div>
+	                      <div className="flex items-center gap-2">
+	                        <CreatureSilhouettes seed={item.replay_id} count={item.mode === 'team' ? 3 : 1} />
+	                        {item.featured ? (
+	                          <Badge variant="neutral" className="bg-white/10 text-white border-transparent text-[10px]">
+	                            Featured
+	                          </Badge>
+	                        ) : null}
+	                      </div>
+	                      <div className="flex flex-wrap gap-1">
+	                        {(item.tags ?? []).slice(0, 4).map((tag) => (
+	                          <Badge
+	                            key={tag}
                             variant="neutral"
                             className="bg-white/10 text-white border-transparent text-[10px]"
                           >
@@ -449,6 +500,47 @@ export const ClipsPage: React.FC = () => {
                       <div className="text-[11px] text-white/60 font-mono">
                         views {item.stats.views} · shares {item.stats.shares} · forks {item.stats.forks}
                       </div>
+                      <div className="pt-2 space-y-2 pointer-events-auto">
+	                        <Button
+	                        type="button"
+	                        size="lg"
+	                        variant="primary"
+	                        className={`w-full rounded-2xl ${isActive && ftueOpen ? 'animate-pulse-slow' : ''}`}
+	                        onClick={() => {
+	                          tapJuice();
+	                          navigate(`/beat?replay_id=${encodeURIComponent(item.replay_id)}&src=clip_view`);
+	                        }}
+	                        aria-label="Beat This"
+                      >
+                        <Zap size={18} />
+                        <span className="ml-2">{lang === 'ko' ? 'Beat This (도전)' : 'Beat This'}</span>
+                      </Button>
+                        <Button
+                          type="button"
+                        size="lg"
+                        variant="secondary"
+	                        className="w-full rounded-2xl bg-white/10 text-white border-white/20 hover:bg-white/15"
+	                        onClick={() => {
+	                          tapJuice();
+                          apiFetch('/api/events/track', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                              type: 'quick_remix_click',
+                              source: 'play',
+                              meta: { replay_id: item.replay_id, mode: item.mode, sort, feed_algo: feedAlgo },
+                            }),
+                          }).catch(() => {
+                            // best-effort
+                          });
+	                          setQuickRemixOpen(true);
+	                        }}
+	                        aria-label="Quick Remix"
+	                        disabled={!item.replay_id}
+                      >
+                        <Wand2 size={18} />
+                        <span className="ml-2">{lang === 'ko' ? 'Quick Remix (프리셋)' : 'Quick Remix'}</span>
+                        </Button>
+                      </div>
                     </div>
 
                     <div className="flex flex-col items-center gap-3 pb-2">
@@ -457,7 +549,10 @@ export const ClipsPage: React.FC = () => {
                         size="icon"
                         variant={liked ? 'primary' : 'secondary'}
                         className="pointer-events-auto rounded-full"
-                        onClick={() => likeMutation.mutate(item)}
+                        onClick={() => {
+                          tapJuice();
+                          likeMutation.mutate(item);
+                        }}
                         aria-label="Like clip"
                       >
                         <Heart size={18} className={liked ? 'text-white' : ''} />
@@ -469,72 +564,8 @@ export const ClipsPage: React.FC = () => {
                         size="icon"
                         variant="secondary"
                         className="pointer-events-auto rounded-full"
-                        onClick={() => shareMutation.mutate(item)}
-                        aria-label="Copy share link"
-                      >
-                        <Share2 size={18} />
-                      </Button>
-                      <div className="text-white/80 text-[11px] font-bold">{item.stats.shares}</div>
-
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="secondary"
-                        className="pointer-events-auto rounded-full"
-                        onClick={() => hideMutation.mutate(item)}
-                        aria-label="Hide clip"
-                      >
-                        <EyeOff size={18} />
-                      </Button>
-                      <div className="text-white/80 text-[11px] font-bold">Hide</div>
-
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="secondary"
-                        className="pointer-events-auto rounded-full"
                         onClick={() => {
-                          const reason = window.prompt('Report reason', 'inappropriate') ?? '';
-                          if (!reason.trim()) return;
-                          reportMutation.mutate({ target_type: 'clip', target_id: item.replay_id, reason });
-                        }}
-                        aria-label="Report clip"
-                      >
-                        <Flag size={18} />
-                      </Button>
-                      <div className="text-white/80 text-[11px] font-bold">Report</div>
-
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant={shareCta === 'beat_this' ? 'primary' : 'secondary'}
-                        className="pointer-events-auto rounded-full"
-                        onClick={() => navigate(`/beat?replay_id=${encodeURIComponent(item.replay_id)}&src=clip_view`)}
-                        aria-label="Beat This (challenge original)"
-                      >
-                        <Zap size={18} />
-                      </Button>
-                      <div className="text-white/80 text-[11px] font-bold">Beat This</div>
-
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="secondary"
-                        className="pointer-events-auto rounded-full"
-                        onClick={() => setQuickRemixOpen(true)}
-                        aria-label="Quick Remix presets"
-                        disabled={!item.replay_id}
-                      >
-                        <Wand2 size={18} />
-                      </Button>
-                      <div className="text-white/80 text-[11px] font-bold">Quick Remix</div>
-
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="secondary"
-                        className="pointer-events-auto rounded-full"
-                        onClick={() => {
+                          tapJuice();
                           setRepliesTab('top');
                           setRepliesOpen(true);
                         }}
@@ -547,28 +578,17 @@ export const ClipsPage: React.FC = () => {
                       <Button
                         type="button"
                         size="icon"
-                        variant={shareCta === 'remix' ? 'primary' : 'secondary'}
-                        className="pointer-events-auto rounded-full"
-                        onClick={() => remixMutation.mutate(item)}
-                        aria-label="Remix (fork build)"
-                        disabled={!item.blueprint_id}
-                      >
-                        <Sparkles size={18} />
-                      </Button>
-                      <div className="text-white/80 text-[11px] font-bold">Remix</div>
-
-                      <Button
-                        type="button"
-                        size="icon"
                         variant="secondary"
                         className="pointer-events-auto rounded-full"
-                        onClick={() => openRankedMutation.mutate(item)}
-                        aria-label="Open ranked with remixed build"
-                        disabled={!item.blueprint_id}
+                        onClick={() => {
+                          tapJuice();
+                          shareMutation.mutate(item);
+                        }}
+                        aria-label="Copy share link"
                       >
-                        <Trophy size={18} />
+                        <Share2 size={18} />
                       </Button>
-                      <div className="text-white/80 text-[11px] font-bold">{t.enterRanked}</div>
+                      <div className="text-white/80 text-[11px] font-bold">{item.stats.shares}</div>
                     </div>
                   </div>
 
@@ -599,113 +619,75 @@ export const ClipsPage: React.FC = () => {
         </div>
       </div>
 
-      {quickRemixOpen && activeClip ? (
-        <div
-          className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4"
-          onClick={() => setQuickRemixOpen(false)}
-        >
-          <div
-            className="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-              <div className="font-bold text-slate-800">Quick Remix</div>
-              <button
-                type="button"
-                className="text-xs font-semibold text-slate-500 hover:text-slate-800"
-                onClick={() => setQuickRemixOpen(false)}
-              >
-                Close
-              </button>
+      <BottomSheet open={quickRemixOpen} title="Quick Remix" onClose={() => setQuickRemixOpen(false)}>
+        {activeClip ? (
+          <div className="space-y-3">
+            <div className="text-sm text-slate-600">
+              Pick a preset to apply minimal tweaks to the original build, then start a “Beat This” challenge.
             </div>
-            <div className="px-4 py-4 space-y-2">
-              <div className="text-sm text-slate-600">
-                Pick a preset to apply minimal tweaks to the original build, then start a “Beat This” challenge.
-              </div>
-              <div className="grid grid-cols-1 gap-2 pt-2">
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    setQuickRemixOpen(false);
-                    navigate(
-                      `/beat?replay_id=${encodeURIComponent(activeClip.replay_id)}&src=clip_view&qr=survivability`
-                    );
-                  }}
-                >
-                  Tankier (survivability)
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    setQuickRemixOpen(false);
-                    navigate(`/beat?replay_id=${encodeURIComponent(activeClip.replay_id)}&src=clip_view&qr=damage`);
-                  }}
-                >
-                  Melt Faster (damage)
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    setQuickRemixOpen(false);
-                    navigate(`/beat?replay_id=${encodeURIComponent(activeClip.replay_id)}&src=clip_view&qr=counter`);
-                  }}
-                >
-                  Counter-first (counter)
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setQuickRemixOpen(false);
-                    navigate(`/beat?replay_id=${encodeURIComponent(activeClip.replay_id)}&src=clip_view`);
-                  }}
-                >
-                  Just Beat This (no remix)
-                </Button>
-              </div>
+            <div className="grid grid-cols-1 gap-2">
+              <Button
+                variant="primary"
+                onClick={() => {
+                  tapJuice();
+                  setQuickRemixOpen(false);
+                  navigate(`/beat?replay_id=${encodeURIComponent(activeClip.replay_id)}&src=clip_view&qr=survivability`);
+                }}
+              >
+                Tankier (survivability)
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  tapJuice();
+                  setQuickRemixOpen(false);
+                  navigate(`/beat?replay_id=${encodeURIComponent(activeClip.replay_id)}&src=clip_view&qr=damage`);
+                }}
+              >
+                Melt Faster (damage)
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  tapJuice();
+                  setQuickRemixOpen(false);
+                  navigate(`/beat?replay_id=${encodeURIComponent(activeClip.replay_id)}&src=clip_view&qr=counter`);
+                }}
+              >
+                Counter-first (counter)
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  tapJuice();
+                  setQuickRemixOpen(false);
+                  navigate(`/beat?replay_id=${encodeURIComponent(activeClip.replay_id)}&src=clip_view`);
+                }}
+              >
+                Just Beat This (no remix)
+              </Button>
             </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </BottomSheet>
 
-      {repliesOpen && activeClip ? (
-        <div
-          className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4"
-          onClick={() => setRepliesOpen(false)}
-        >
-          <div
-            className="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-              <div className="font-bold text-slate-800">Replies</div>
-              <button
-                type="button"
-                className="text-xs font-semibold text-slate-500 hover:text-slate-800"
-                onClick={() => setRepliesOpen(false)}
-              >
-                Close
-              </button>
-            </div>
-            <div className="px-4 py-3 flex gap-2">
+      <BottomSheet open={repliesOpen} title="Replies" onClose={() => setRepliesOpen(false)}>
+        {activeClip ? (
+          <>
+            <div className="flex gap-2 pb-3">
               <Button size="sm" variant={repliesTab === 'top' ? 'primary' : 'secondary'} onClick={() => setRepliesTab('top')}>
                 Top Replies
               </Button>
-              <Button
-                size="sm"
-                variant={repliesTab === 'recent' ? 'primary' : 'secondary'}
-                onClick={() => setRepliesTab('recent')}
-              >
+              <Button size="sm" variant={repliesTab === 'recent' ? 'primary' : 'secondary'} onClick={() => setRepliesTab('recent')}>
                 Recent
               </Button>
             </div>
-            <div className="px-4 pb-4 max-h-[70vh] overflow-auto">
+            <div className="max-h-[70vh] overflow-auto">
               {repliesFetching ? <div className="text-sm text-slate-500 py-3">Loading…</div> : null}
-              {repliesError ? (
-                <div className="text-sm text-red-600 py-3 break-words">{String(repliesError)}</div>
-              ) : null}
+              {repliesError ? <div className="text-sm text-red-600 py-3 break-words">{String(repliesError)}</div> : null}
               {repliesData?.items?.length ? (
                 <div className="space-y-2">
-                  {repliesData.items.map((r) => (
+                  {repliesData.items.map((r, i) => (
                     <button
                       key={r.reply_replay_id}
                       type="button"
@@ -723,6 +705,11 @@ export const ClipsPage: React.FC = () => {
                         />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
+                            {repliesTab === 'top' ? (
+                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-brand-600 text-white">
+                                #{i + 1}
+                              </span>
+                            ) : null}
                             <span
                               className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                                 r.outcome === 'win'
@@ -734,18 +721,14 @@ export const ClipsPage: React.FC = () => {
                             >
                               {r.outcome.toUpperCase()}
                             </span>
-                            <div className="text-sm font-semibold text-slate-800 truncate">
-                              {r.challenger_display_name ?? 'Guest'}
-                            </div>
+                            <div className="text-sm font-semibold text-slate-800 truncate">{r.challenger_display_name ?? 'Guest'}</div>
                           </div>
                           <div className="text-xs text-slate-600 mt-1 truncate">{r.blueprint_name ?? 'Starter Build'}</div>
                           <div className="text-[11px] text-slate-500 mt-2">
                             👍 {r.reactions?.up ?? 0} · 😂 {r.reactions?.lol ?? 0} · 🤯 {r.reactions?.wow ?? 0} · shares{' '}
                             {r.shares ?? 0}
                           </div>
-                          <div className="text-[11px] text-slate-500">
-                            fork depth {r.lineage?.fork_depth ?? 0}
-                          </div>
+                          <div className="text-[11px] text-slate-500">fork depth {r.lineage?.fork_depth ?? 0}</div>
                         </div>
                       </div>
                     </button>
@@ -755,9 +738,9 @@ export const ClipsPage: React.FC = () => {
                 <div className="text-sm text-slate-500 py-3">No replies yet.</div>
               ) : null}
             </div>
-          </div>
-        </div>
-      ) : null}
-    </div>
+          </>
+        ) : null}
+      </BottomSheet>
+    </>
   );
 };

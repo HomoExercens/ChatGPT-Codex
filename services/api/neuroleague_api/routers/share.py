@@ -1807,8 +1807,9 @@ def clip_landing(
         text-decoration: none;
         color: inherit;
         display: block;
+        transition: transform .12s ease, border-color .12s ease;
       }}
-      .reply-card:hover {{ border-color: rgba(255,255,255,.22); }}
+      .reply-card:hover {{ border-color: rgba(255,255,255,.22); transform: translateY(-1px); }}
       .reply-thumb {{
         width: 100%;
         aspect-ratio: 16/9;
@@ -1817,18 +1818,34 @@ def clip_landing(
         background: rgba(15,23,42,.7);
       }}
       .reply-meta {{ padding: 10px 10px 12px; }}
+      .reply-top {{ display: flex; align-items: center; gap: 8px; }}
+      .reply-user {{ font-size: 12px; color: rgba(226,232,240,.92); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+      .reply-rank {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: 900;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,.16);
+        background: rgba(255,255,255,.08);
+        color: rgba(255,255,255,.92);
+      }}
+      .reply-rank.top1 {{ background: rgba(251,191,36,.18); border-color: rgba(251,191,36,.35); }}
+      .reply-rank.top2 {{ background: rgba(148,163,184,.18); border-color: rgba(148,163,184,.35); }}
+      .reply-rank.top3 {{ background: rgba(244,114,182,.16); border-color: rgba(244,114,182,.28); }}
       .pill {{
         display: inline-block;
         font-size: 11px;
         padding: 2px 8px;
         border-radius: 999px;
         border: 1px solid var(--border);
-        margin-right: 8px;
       }}
       .pill.win {{ background: rgba(34,197,94,.16); }}
       .pill.loss {{ background: rgba(239,68,68,.16); }}
       .pill.draw {{ background: rgba(148,163,184,.12); }}
-      .reply-line {{ font-size: 12px; color: var(--text); margin: 6px 0 0; }}
+      .reply-line {{ font-size: 13px; color: var(--text); margin: 8px 0 0; }}
       .reply-sub {{ font-size: 11px; color: var(--muted); margin: 6px 0 0; }}
     </style>
   </head>
@@ -1887,6 +1904,20 @@ def clip_landing(
                     '<a class="reply-card" href="/s/clip/' + html.escape(str(r.get("reply_replay_id") or "")) + '">'
                     '<img class="reply-thumb" src="/s/clip/' + html.escape(str(r.get("reply_replay_id") or "")) + '/thumb.png" alt="Reply thumbnail" />'
                     '<div class="reply-meta">'
+                    + '<div class="reply-top">'
+                    + (
+                      (
+                        '<span class="reply-rank top1">#1</span>'
+                        if i == 0
+                        else '<span class="reply-rank top2">#2</span>'
+                        if i == 1
+                        else '<span class="reply-rank top3">#3</span>'
+                        if i == 2
+                        else '<span class="reply-rank">#' + html.escape(str(int(i) + 1)) + '</span>'
+                      )
+                      if replies_tab == "top"
+                      else ""
+                    )
                     + (
                       '<span class="pill win">WIN</span>'
                       if r.get("outcome") == "win"
@@ -1894,7 +1925,8 @@ def clip_landing(
                       if r.get("outcome") == "loss"
                       else '<span class="pill draw">DRAW</span>'
                     )
-                    + '<span class="tiny">' + html.escape(str(r.get("challenger_display_name") or "Guest")) + '</span>'
+                    + '<span class="reply-user">' + html.escape(str(r.get("challenger_display_name") or "Guest")) + '</span>'
+                    + '</div>'
                     + '<div class="reply-line"><strong>'
                     + html.escape(str(r.get("blueprint_name") or "Starter Build"))
                     + '</strong></div>'
@@ -1914,7 +1946,7 @@ def clip_landing(
                     + '<div class="reply-sub">likes ' + html.escape(str(int(r.get("likes") or 0))) + '</div>'
                     '</div></a>'
                   )
-                  for r in replies
+                  for i, r in enumerate(replies)
                 )
                 if replies
                 else '<div class="tiny">No replies yet. Be the first to Beat This.</div>'

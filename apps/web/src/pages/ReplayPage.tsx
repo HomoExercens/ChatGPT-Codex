@@ -22,7 +22,9 @@ import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '../comp
 import { BattleViewport } from '../components/replay/BattleViewport';
 import type { BlueprintOut, MatchDetail, ModifiersMeta, QueueResponse, ReactionCounts, ReactResponse, Replay } from '../api/types';
 import { apiFetch, apiFetchBlob } from '../lib/api';
+import { playSfx, tapJuice, vibrate } from '../lib/juice';
 import { readShareVariants } from '../lib/shareVariants';
+import { toast } from '../lib/toast';
 import { TRANSLATIONS } from '../lib/translations';
 import { appendUtmParams } from '../lib/utm';
 import { useSettingsStore } from '../stores/settings';
@@ -42,6 +44,7 @@ const RECOMMENDED_STARTER_BUILDS: Record<'1v1' | 'team', Array<{ id: string; lab
 
 const PLAYTEST_ACTIVE_KEY = 'neuroleague.playtest.active';
 const PLAYTEST_DEMO_REPLAY_ID_KEY = 'neuroleague.playtest.demo_replay_id';
+const FTUE_COMPLETED_KEY = 'neuroleague.ftue.completed.v1';
 
 function getPlaytestDemoReplayId(): string | null {
   try {
@@ -599,6 +602,46 @@ export const ReplayPage: React.FC = () => {
   }, [match?.challenge?.target_replay_id, searchParams]);
 
   const isReplyClip = Boolean(match?.queue_type === 'challenge' && replyToReplayId);
+  const replyOutcome = useMemo<'win' | 'loss' | 'draw' | null>(() => {
+    if (!isReplyClip) return null;
+    if (match?.result === 'A') return 'win';
+    if (match?.result === 'B') return 'loss';
+    if (match?.result === 'draw') return 'draw';
+    return null;
+  }, [isReplyClip, match?.result]);
+
+  const [resultJuiced, setResultJuiced] = useState(false);
+  useEffect(() => {
+    if (!isReplyClip) return;
+    if (!match || match.status !== 'done') return;
+    if (resultJuiced) return;
+    setResultJuiced(true);
+    if (match.result === 'A') {
+      playSfx('success');
+      vibrate([18, 40, 18]);
+      return;
+    }
+    if (match.result === 'B') {
+      playSfx('fail');
+      vibrate([40, 50, 40]);
+      return;
+    }
+    playSfx('click');
+    vibrate(20);
+  }, [isReplyClip, match, resultJuiced]);
+
+  const replyXp = useMemo(() => {
+    if (!replyOutcome) return 0;
+    if (replyOutcome === 'win') return 45;
+    if (replyOutcome === 'draw') return 25;
+    return 15;
+  }, [replyOutcome]);
+  const replyXpProgress = useMemo(() => {
+    if (!replyOutcome) return 0;
+    if (replyOutcome === 'win') return 72;
+    if (replyOutcome === 'draw') return 58;
+    return 41;
+  }, [replyOutcome]);
 
   const { data: reactionCounts } = useQuery({
     queryKey: ['reactions', match?.replay_id],
@@ -819,16 +862,106 @@ export const ReplayPage: React.FC = () => {
       // ignore
     }
 
-    const url = appendUtmParams(withReferral(minted.share_url_vertical), {
-      utm_source: 'reply_clip_share',
-      utm_medium: 'copy',
-    });
-    await copyEndpointLink(url);
+	    const url = appendUtmParams(withReferral(minted.share_url_vertical), {
+	      utm_source: 'reply_clip_share',
+	      utm_medium: 'copy',
+	    });
+	    await copyEndpointLink(url);
+	  };
+
+  const shareReply = async () => {
+    if (!isReplyClip) return;
+    tapJuice();
+    await copyReplyClipLink();
+    toast.success(lang === 'ko' ? 'Reply 링크 복사됨' : 'Reply link copied');
+    try {
+      const done = localStorage.getItem(FTUE_COMPLETED_KEY) === '1';
+      if (!done) {
+        localStorage.setItem(FTUE_COMPLETED_KEY, '1');
+        await apiFetch('/api/events/track', {
+          method: 'POST',
+          body: JSON.stringify({
+            type: 'ftue_completed',
+            source: 'reply_share',
+            meta: {
+              match_id: id,
+              reply_replay_id: match?.replay_id ?? null,
+              parent_replay_id: replyToReplayId,
+            },
+          }),
+        });
+      }
+    } catch {
+      // best-effort
+    }
   };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
       <div className="lg:col-span-9 flex flex-col gap-4 min-h-[calc(100vh-140px)]">
+        {isReplyClip ? (
+          <div className="rounded-3xl overflow-hidden border border-white/10 bg-gradient-to-r from-brand-600 to-accent-500 text-white shadow-xl">
+            <div className="p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-black tracking-widest text-white/80 uppercase">
+                    {lang === 'ko' ? '결과' : 'Result'}
+                  </div>
+                  <div className="mt-1 text-4xl font-black tracking-tight leading-none">
+                    {replyOutcome === 'win' ? 'WIN' : replyOutcome === 'loss' ? 'LOSE' : replyOutcome === 'draw' ? 'DRAW' : '—'}
+                  </div>
+                  <div className="mt-2 text-sm text-white/85">
+                    {lang === 'ko'
+                      ? '이제 Reply 클립을 공유하면 원본 Replies에 표시됩니다.'
+                      : 'Share your reply clip and it will appear in Replies on the original.'}
+                  </div>
+                </div>
+                <div className="shrink-0 text-right">
+                  <div className="text-[11px] text-white/80 font-bold">{lang === 'ko' ? 'XP' : 'XP'}</div>
+                  <div className="text-2xl font-black">+{replyXp}</div>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <div className="flex justify-between items-center text-[11px] text-white/80">
+                  <span>{lang === 'ko' ? '진행도' : 'Progress'}</span>
+                  <span className="font-mono">{replyXpProgress}%</span>
+                </div>
+                <div className="mt-2 w-full h-2 rounded-full bg-white/20 overflow-hidden">
+                  <div className="h-full bg-white" style={{ width: `${replyXpProgress}%` }} />
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  className="h-12 rounded-2xl bg-white text-slate-900 font-extrabold tracking-tight shadow-lg shadow-black/20 hover:bg-white/95 active:bg-white/90 transition-colors"
+                  onClick={shareReply}
+                  disabled={!match?.replay_id}
+                >
+                  {lang === 'ko' ? 'Reply 클립 공유(링크 복사)' : 'Share Reply Clip'}
+                </button>
+                <a
+                  href={replyToReplayId ? `/s/clip/${encodeURIComponent(replyToReplayId)}` : '#'}
+                  className={`h-12 rounded-2xl bg-white/10 text-white font-extrabold tracking-tight border border-white/20 hover:bg-white/15 active:bg-white/20 transition-colors inline-flex items-center justify-center ${
+                    replyToReplayId ? '' : 'opacity-50 pointer-events-none'
+                  }`}
+                  onClick={(e) => {
+                    if (!replyToReplayId) {
+                      e.preventDefault();
+                      return;
+                    }
+                    tapJuice();
+                  }}
+                  aria-disabled={!replyToReplayId}
+                >
+                  {lang === 'ko' ? '원본 보기' : 'View Original'}
+                </a>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
           <div className="flex items-center gap-6">
             <div className="flex flex-col items-center">

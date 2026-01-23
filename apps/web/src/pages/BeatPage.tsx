@@ -23,12 +23,12 @@ function getPlaytestDemoReplayId(): string | null {
 
 function sanitizeNext(nextRaw: string): string {
   const next = (nextRaw || '').trim();
-  if (!next) return '/home';
-  if (!next.startsWith('/')) return '/home';
-  if (next.startsWith('//')) return '/home';
-  if (next.startsWith('/\\')) return '/home';
-  if (next.startsWith('/%5c')) return '/home';
-  if (next.includes('://')) return '/home';
+  if (!next) return '/play';
+  if (!next.startsWith('/')) return '/play';
+  if (next.startsWith('//')) return '/play';
+  if (next.startsWith('/\\')) return '/play';
+  if (next.startsWith('/%5c')) return '/play';
+  if (next.includes('://')) return '/play';
   return next;
 }
 
@@ -177,8 +177,8 @@ export const BeatPage: React.FC = () => {
             <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
               <div className="font-mono break-all">{error}</div>
               <div className="mt-3 flex gap-2">
-                <Button variant="secondary" onClick={() => navigate('/home', { replace: true })}>
-                  Go Home
+                <Button variant="secondary" onClick={() => navigate('/play', { replace: true })}>
+                  Back to Play
                 </Button>
               </div>
             </div>

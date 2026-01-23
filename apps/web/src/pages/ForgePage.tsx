@@ -1,16 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, Info, Save, Shield, UploadCloud, UserPlus } from 'lucide-react';
+import { Copy, Info, Save, Shield, UploadCloud, UserPlus, Wand2 } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input } from '../components/ui';
+import { Badge, BottomSheet, Button, Card, CardContent, CardHeader, CardTitle, Input } from '../components/ui';
 import { MOCK_CREATURES } from '../domain/constants';
 import type { Creature } from '../domain/models';
 import { RARITY, type Rarity } from '../domain/models';
 import { apiFetch } from '../lib/api';
+import { tapJuice } from '../lib/juice';
+import { toast } from '../lib/toast';
 import { TRANSLATIONS } from '../lib/translations';
 import { useSettingsStore } from '../stores/settings';
-import type { BlueprintLineage, BlueprintOut, BuildCodeDecodeOut, BuildCodeImportOut, Mode } from '../api/types';
+import type { BlueprintLineage, BlueprintOut, BuildCodeDecodeOut, BuildCodeImportOut, Mode, QueueResponse } from '../api/types';
+import { readShareVariants } from '../lib/shareVariants';
 
 type BlueprintSpec = {
   ruleset_version: string;
@@ -20,6 +23,27 @@ type BlueprintSpec = {
     formation: 'front' | 'back';
     items: { weapon?: string | null; armor?: string | null; utility?: string | null };
   }>;
+};
+
+type AutoTunePreset = 'dps' | 'tank' | 'speed';
+type AutoTuneOut = {
+  ok: boolean;
+  blueprint: BlueprintOut;
+  parent_blueprint_id: string;
+  preset: string;
+  meta: {
+    best_score?: number;
+    wins?: number;
+    draws?: number;
+    losses?: number;
+    changes?: Array<{
+      slot_index: number;
+      creature_id: string;
+      item_slot: 'weapon' | 'armor' | 'utility';
+      from?: string | null;
+      to?: string | null;
+    }>;
+  };
 };
 
 function coerceSpec(spec: unknown): BlueprintSpec | null {
@@ -183,6 +207,8 @@ export const ForgePage: React.FC = () => {
   const [draftName, setDraftName] = useState('');
   const [spec, setSpec] = useState<BlueprintSpec | null>(null);
   const [submitCooldownSec, setSubmitCooldownSec] = useState<number | null>(null);
+  const [autoTuneOpen, setAutoTuneOpen] = useState(false);
+  const [autoTuneResult, setAutoTuneResult] = useState<AutoTuneOut | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [importCode, setImportCode] = useState('');
   const [importName, setImportName] = useState('');
@@ -289,6 +315,64 @@ export const ForgePage: React.FC = () => {
     mutationFn: async () => {
       if (!blueprint) throw new Error('No blueprint selected');
       return apiFetch<{ ok: boolean; spec_hash: string }>(`/api/blueprints/${blueprint.id}/validate`, { method: 'POST' });
+    },
+  });
+
+  const autoTuneMutation = useMutation({
+    mutationFn: async (preset: AutoTunePreset) => {
+      if (!blueprint) throw new Error('No blueprint selected');
+      return apiFetch<AutoTuneOut>(`/api/blueprints/${encodeURIComponent(blueprint.id)}/auto_tune`, {
+        method: 'POST',
+        body: JSON.stringify({ preset }),
+      });
+    },
+    onSuccess: async (out) => {
+      await queryClient.invalidateQueries({ queryKey: ['blueprints'] });
+      setAutoTuneResult(out);
+      apiFetch('/api/events/track', {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'auto_tune_success',
+          source: 'forge',
+          meta: {
+            new_blueprint_id: out.blueprint.id,
+            parent_blueprint_id: out.parent_blueprint_id,
+            preset: out.preset,
+            fallback: Boolean((out.meta as any)?.error),
+          },
+        }),
+      }).catch(() => {
+        // best-effort
+      });
+    },
+    onError: (e) => toast.error('Auto Tune failed', e instanceof Error ? e.message : String(e)),
+  });
+
+  const queueFromBlueprintMutation = useMutation({
+    mutationFn: async (bpId: string) => {
+      const submitted = await apiFetch<BlueprintOut>(`/api/blueprints/${encodeURIComponent(bpId)}/submit`, { method: 'POST' });
+      const queued = await apiFetch<QueueResponse>('/api/ranked/queue', {
+        method: 'POST',
+        body: JSON.stringify({ blueprint_id: submitted.id, seed_set_count: 1, ...readShareVariants() }),
+      });
+      return { queued, mode: submitted.mode };
+    },
+    onSuccess: ({ queued, mode }) => {
+      navigate(`/ranked?mode=${encodeURIComponent(mode)}&match_id=${encodeURIComponent(queued.match_id)}&auto=1`);
+    },
+    onError: (err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      try {
+        const parsed = JSON.parse(msg);
+        const detail = parsed?.detail ?? parsed;
+        if (detail?.error === 'submit_cooldown') {
+          const retry = Number(detail?.retry_after_sec ?? NaN);
+          if (Number.isFinite(retry) && retry > 0) setSubmitCooldownSec(Math.round(retry));
+        }
+      } catch {
+        // ignore
+      }
+      toast.error('Queue failed', msg);
     },
   });
 
@@ -622,6 +706,19 @@ export const ForgePage: React.FC = () => {
             >
               <UserPlus size={16} className="mr-2" /> Import
             </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                if (!blueprint?.id) return;
+                tapJuice();
+                setAutoTuneResult(null);
+                setAutoTuneOpen(true);
+              }}
+              disabled={!blueprint?.id}
+            >
+              <Wand2 size={16} className="mr-2" /> Auto Tune
+            </Button>
             <Button size="sm" variant="ghost" onClick={copyBuildCode} disabled={!blueprint?.build_code}>
               <Copy size={16} className="mr-2" /> Copy Code
             </Button>
@@ -916,6 +1013,124 @@ export const ForgePage: React.FC = () => {
           </div>
         </CardContent>
       </Card>
+
+      <BottomSheet open={autoTuneOpen} title="Auto Tune" onClose={() => setAutoTuneOpen(false)}>
+        {!blueprint?.id ? (
+          <div className="text-sm text-slate-600">No blueprint selected.</div>
+        ) : autoTuneMutation.isPending ? (
+          <div className="text-sm text-slate-600">Tuning… (deterministic sims)</div>
+        ) : autoTuneResult?.blueprint?.id ? (
+          <div className="space-y-3">
+            <div className="text-sm text-slate-800 font-extrabold">{autoTuneResult.blueprint.name}</div>
+            <div className="text-xs text-slate-500 font-mono break-all">new: {autoTuneResult.blueprint.id}</div>
+            <div className="text-xs text-slate-500">
+              wins {autoTuneResult.meta?.wins ?? 0} · draws {autoTuneResult.meta?.draws ?? 0} · losses {autoTuneResult.meta?.losses ?? 0}
+            </div>
+            <div className="text-sm font-bold text-slate-800">Before → After</div>
+            {(autoTuneResult.meta?.changes ?? []).length ? (
+              <div className="space-y-1">
+                {(autoTuneResult.meta?.changes ?? []).slice(0, 12).map((c, idx) => (
+                  <div key={idx} className="text-[12px] text-slate-700 font-mono break-words">
+                    slot {Number(c.slot_index ?? 0) + 1} {c.item_slot}: {String(c.from ?? '—')} → {String(c.to ?? '—')}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-slate-600">No item changes.</div>
+            )}
+            <div className="flex gap-2 pt-2">
+              <Button
+                onClick={() => {
+                  tapJuice();
+                  setBlueprintId(autoTuneResult.blueprint.id);
+                  setAutoTuneOpen(false);
+                }}
+              >
+                Open tuned build
+              </Button>
+              <Button
+                variant="secondary"
+                isLoading={queueFromBlueprintMutation.isPending}
+                onClick={() => {
+                  tapJuice();
+                  queueFromBlueprintMutation.mutate(autoTuneResult.blueprint.id);
+                }}
+              >
+                Queue match
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="text-sm text-slate-600">Pick a preset. Auto Tune creates a new forked blueprint.</div>
+            <div className="grid grid-cols-1 gap-2">
+	              <Button
+	                onClick={() => {
+	                  tapJuice();
+	                  setAutoTuneResult(null);
+                  if (blueprint?.id) {
+                    apiFetch('/api/events/track', {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        type: 'auto_tune_click',
+                        source: 'forge',
+                        meta: { blueprint_id: blueprint.id, preset: 'dps' },
+                      }),
+                    }).catch(() => {
+                      // best-effort
+                    });
+                  }
+	                  autoTuneMutation.mutate('dps');
+	                }}
+	              >
+	                DPS
+	              </Button>
+	              <Button
+	                onClick={() => {
+	                  tapJuice();
+	                  setAutoTuneResult(null);
+                  if (blueprint?.id) {
+                    apiFetch('/api/events/track', {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        type: 'auto_tune_click',
+                        source: 'forge',
+                        meta: { blueprint_id: blueprint.id, preset: 'tank' },
+                      }),
+                    }).catch(() => {
+                      // best-effort
+                    });
+                  }
+	                  autoTuneMutation.mutate('tank');
+	                }}
+	              >
+	                Tank
+	              </Button>
+	              <Button
+	                onClick={() => {
+	                  tapJuice();
+	                  setAutoTuneResult(null);
+                  if (blueprint?.id) {
+                    apiFetch('/api/events/track', {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        type: 'auto_tune_click',
+                        source: 'forge',
+                        meta: { blueprint_id: blueprint.id, preset: 'speed' },
+                      }),
+                    }).catch(() => {
+                      // best-effort
+                    });
+                  }
+	                  autoTuneMutation.mutate('speed');
+	                }}
+	              >
+	                Speed
+	              </Button>
+            </div>
+          </div>
+        )}
+      </BottomSheet>
     </div>
   );
 };

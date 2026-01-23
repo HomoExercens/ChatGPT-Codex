@@ -2,6 +2,5 @@
   <string name="app_name">NeuroLeague</string>
   <!-- Update for your production domain -->
   <string name="host">neuroleague.example.com</string>
-  <string name="default_url">https://neuroleague.example.com/</string>
+  <string name="default_url">https://neuroleague.example.com/play</string>
 </resources>
-
