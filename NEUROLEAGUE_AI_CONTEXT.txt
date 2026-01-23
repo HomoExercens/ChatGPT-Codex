@@ -1,0 +1,513 @@
+NeuroLeague(크리처 랩 오토배틀 리그) — 프로젝트 완전 이해를 위한 AI 컨텍스트 문서
+================================================================================
+
+이 문서는 “이 프로젝트에 대한 사전 정보가 전혀 없는 AI(또는 새로 합류한 개발자)”가
+레포를 열자마자 전체 구조/도메인/흐름/설계를 빠짐없이 파악할 수 있도록 작성된
+자급자족(Self-contained) 설명서다.
+
+레포 루트: /home/clutch/cursor-workspace/cursor/뉴로리그
+Windows(UNC)에서 같은 경로: \\wsl$\Ubuntu\home\clutch\cursor-workspace\cursor\뉴로리그
+
+
+0) 한 줄 요약(TL;DR)
+---------------------
+NeuroLeague는 “크리처(유닛) + 아이템 + 시너지”로 구성된 오토배틀을,
+웹/데스크톱/공유(OG)까지 포함한 ‘서비스 형태’로 만들기 위한 로컬 프로토타입이다.
+
+핵심 파이프라인은 다음 4개를 하나의 결정론(deterministic) 기준으로 묶는다:
+1) Blueprint(청사진) 제작/제출 → 2) Ranked/Tournament/Challenge 큐 → 3) 결정론 시뮬 + Elo → 4) Replay/Clip/Share(OG) 제공
+추가로 RL(강화학습)로 Draft(상점/경제) 플레이를 학습하고, 체크포인트를 Blueprint로 변환하는 기능이 있다.
+
+
+1) 레포에서 쓰는 용어(Glossary)
+------------------------------
+아래 용어는 코드/DB/API/프론트에서 동일한 의미로 반복 등장한다.
+
+1. Blueprint(청사진)
+  - 유저가 만든 “팀 구성” 데이터.
+  - 모드에 따라 팀 인원 수가 고정됨:
+    - mode="1v1" → 정확히 1 유닛
+    - mode="team" → 정확히 3 유닛
+  - 서버/DB에는 spec_json(정규화된 JSON)과 spec_hash(sha256)가 저장됨.
+  - 제출(submitted)된 Blueprint만 Ranked/Tournament에 들어갈 수 있다.
+
+2. Forge
+  - 프론트에서 Blueprint를 편집/복제/포크(fork)하는 UX 영역(페이지).
+  - Build Code(아래) 가져오기(import)와 lineage(포크 계보) 노출도 여기서 다룸.
+
+3. Match(매치)
+  - 큐에 들어간 “한 번의 대전 요청/결과”.
+  - queue_type으로 성격이 나뉜다:
+    - ranked: Elo 반영되는 기본 PvP(풀 부족 시 bot fallback 가능)
+    - tournament: 주간(weekly) 테마 기반의 큐(참가 뱃지 지급 등)
+    - challenge: “Beat This” 류의 고정 규칙 도전(기본적으로 Elo 업데이트 off)
+  - 상태: queued → running → done/failed
+  - 결과: A/B/draw (A = 유저, B = 상대)
+  - seed_set_count 만큼 여러 seed_index로 반복 시뮬하여 다수결로 승패를 결정(안정성/분산성)
+
+4. Replay(리플레이)
+  - 시뮬의 단일 실행(seed_index=0 기준)에서 생성된 결정론적 타임라인 데이터.
+  - 핵심 구성:
+    - header: match_id, seed, mode, blueprint hashes, portal/augments, 초기 유닛 스냅샷 등
+    - timeline_events: 전투 이벤트(ATTACK/DAMAGE/HEAL/DEATH…), 시너지/증강 이벤트 포함
+    - highlights: “하이라이트 구간” 후보(Clip/Share에서 쓰기 좋게)
+    - digest: header+events+summary+highlights의 canonical JSON sha256 (재현/캐시의 기준)
+
+5. Highlight / Best Clip
+  - 하이라이트는 replay 타임라인 이벤트에서 결정론적으로 계산됨.
+  - “Best clip”은 대표 하이라이트(없으면 fallback 구간)에서 6~12초 정도를 선택해 공유/피드에 사용.
+
+6. Clip / Share Landing (/s/*)
+  - SNS/메신저는 SPA JS를 실행하지 않으므로, 서버가 HTML(OG meta 포함)을 직접 반환한다.
+  - /s/clip/{replay_id} 같은 URL이 그 역할을 담당.
+  - OG image는 “절대 404가 나지 않도록(never-404)” 설계되어 있음(없으면 placeholder PNG).
+
+7. Render Job
+  - 썸네일/클립(gif/webm/mp4)/sharecard 등의 “자산 생성 작업”을 추적하는 DB 엔티티.
+  - 기본: Ray task로 비동기 실행(캐시 miss 시 202+job_id → 폴링)
+  - E2E/데스크톱 등 Ray 의존을 회피해야 하는 경우: 동기 실행 또는 로컬 runner 사용.
+
+8. Portal / Augment
+  - 매치/드래프트에 “변주(variation)”를 주는 규칙 세트.
+  - match_id 기반으로 결정론 선택되며 replay에도 기록된다.
+  - Portal은 “세트 메카닉/룰”에 가깝고, Augment는 “선택형 보너스”에 가깝다.
+
+9. Draft(드래프트) / Training / Checkpoint
+  - RL 환경(드래프트 상점/경제)을 플레이해 강화학습(PPO)으로 학습한다.
+  - 체크포인트(Checkpoint)는 RLlib 저장물이며 artifacts/models/ 아래에 저장된다.
+  - 체크포인트 → Blueprint 변환은 정책 inference를 “결정론적으로” 실행해 생성한다(실패 시 안전한 fallback).
+
+10. Pack(콘텐츠 팩) / Ruleset
+  - 시뮬 카탈로그(크리처/아이템/시너지/포털/증강 등)를 JSON으로 스냅샷한 파일.
+  - pack_hash는 created_at/pack_hash 자체를 제외한 canonical JSON sha256로 계산되며,
+    replay.header.pack_hash에 기록되어 “어떤 규칙/콘텐츠로 생성된 replay인지” 추적할 수 있다.
+
+11. Ops
+  - 운영자(관리자)용 대시보드/엔드포인트 묶음.
+  - X-Admin-Token 헤더(NEUROLEAGUE_ADMIN_TOKEN)로 보호된다.
+  - metrics rollup, featured, quests, discord outbox, moderation, deploy sanity 등 포함.
+
+
+2) 레포 구조(모노레포)와 각 디렉터리의 의미
+------------------------------------------
+루트 README: `README.md`
+
+모노레포 큰 구조:
+- `apps/web`      : React+TS+Vite+Tailwind SPA (실제 서비스 UI)
+- `apps/desktop`  : Electron 데스크톱 래퍼(웹 빌드 + 로컬 FastAPI 서버를 함께 실행)
+- `apps/android-twa` : Android Trusted Web Activity(TWA) 래퍼(딥링크/설치→열기 경험)
+- `services/api`  : FastAPI 서버 + SQLAlchemy + Alembic + Ray orchestration
+- `packages/sim`  : 결정론 시뮬레이터(전투) + replay 포맷 + highlights
+- `packages/rl`   : PettingZoo ParallelEnv + RLlib PPO(드래프트 학습/추론)
+- `packs/`        : ruleset 콘텐츠 팩(JSON)
+- `artifacts/`    : 런타임 산출물(로컬 DB, replays, clips, sharecards, models…)
+- `scripts/`      : make 타겟들이 호출하는 운영/개발 스크립트 모음
+
+UI export 관련(중요하지만 “실제 앱”과는 다름):
+- 루트에 `App.tsx`, `components/`, `views/` 등 “원본 UI export”가 존재.
+- 그 사본을 `ui/`에 보관(업데이트 동기화는 `scripts/sync_ui.sh` 참고).
+- 실제 서비스 UI는 `apps/web/src/*`가 기준이다.
+
+
+3) 기술 스택(Tech Stack)
+------------------------
+Backend(API/Sim/RL)
+- Python 3.12
+- FastAPI + Uvicorn
+- SQLAlchemy 2.x + Alembic
+- SQLite(로컬) / Postgres(프로덕션 유사 구성)
+- Ray + RLlib (비동기 잡/학습)
+- PettingZoo + Gymnasium (멀티에이전트 드래프트 환경)
+- NumPy (RNG/시뮬)
+- orjson (canonical JSON/속도)
+- Pillow + imageio-ffmpeg (썸네일/클립 렌더링)
+- qrcode (QR 생성)
+- PyJWT + passlib[bcrypt] (인증)
+- (옵션) boto3 (S3/MinIO 스토리지)
+
+Frontend(Web)
+- React 19 + TypeScript
+- React Router
+- TanStack Query (서버 상태/캐싱)
+- Zustand (클라이언트 상태)
+- TailwindCSS
+- Playwright(sharecard v2 HTML→PNG 렌더링 스크립트)
+
+Desktop
+- Electron + electron-builder
+- 로컬 FastAPI 서버를 프로세스로 스폰하여 “오프라인/로컬 데모” 형태를 구성
+
+Infra(참고 구성)
+- docker-compose:
+  - dev: SQLite + 단일 API + Vite dev server
+  - prod-like: Postgres + MinIO + Ray(head+worker) + nginx web
+  - deploy: Caddy(HTTPS) + Postgres + MinIO + Ray + scheduler + backup + web + api
+
+
+4) 실행/개발(로컬) — 가장 빠른 시작 방법
+---------------------------------------
+기본 권장: `make dev`
+- Python venv 부트스트랩 + Alembic 마이그레이션 + seed data + API+Web 동시 실행
+
+핵심 커맨드(README.md 기준):
+- `make dev` : 전체(dev) 실행
+- `make api` : API만
+- `make web` : Web만
+- `make db-init` : DB 마이그레이션(Alembic)
+- `make seed-data` / `make seed-data-reset` : 데모/봇/리플레이 시드
+- `make test` : 결정론/리플레이/Elo/API 스키마 등 테스트
+- `make e2e` : Playwright E2E(빠른 모드 지원)
+
+로컬 기본 포트:
+- Web: http://localhost:3000
+- API: http://localhost:8000
+- API docs: http://localhost:8000/docs
+
+프론트-백 연결 방식:
+- `apps/web/vite.config.ts`에서 `/api`, `/s/`, `/.well-known`를 API로 프록시한다.
+- prod 컨테이너에서는 nginx가 `/api/`, `/s/`를 API로 프록시한다(`apps/web/nginx.conf`).
+
+
+5) 배포/운영(Compose) — “참고 스택”의 의미
+------------------------------------------
+이 프로젝트는 “단일 VPS” 기준의 deploy reference를 제공한다.
+
+파일:
+- `docker-compose.yml`         : 가장 단순(로컬) — API+Web, SQLite
+- `docker-compose.prod.yml`    : prod-like — Postgres+MinIO+Ray+nginx web
+- `docker-compose.deploy.yml`  : deploy — Caddy(HTTPS) + scheduler + backup 포함
+- 템플릿: `.env.deploy.example`, `.env.deploy.ci.example`
+- 런북: `docs/RUNBOOK_DEPLOY.md`
+
+중요 변수:
+- `NEUROLEAGUE_PUBLIC_BASE_URL`:
+  - OG meta / share URL / public asset URL 생성의 “정답”이 되는 외부 base URL
+  - 리버스 프록시/HTTPS 뒤에서도 링크가 올바르게 만들어지도록 필수에 가깝다.
+- `NEUROLEAGUE_TRUST_PROXY_HEADERS` + `NEUROLEAGUE_ALLOWED_HOSTS`:
+  - 프록시 환경에서 X-Forwarded-* 신뢰 여부 + Host allowlist.
+
+스토리지:
+- local(default): artifacts_dir 아래 파일 저장 + `/api/assets/*`로 서빙(allowlist 적용)
+- s3(optional): MinIO/S3에 put/get + CDN base url 지원
+
+
+6) 핵심 설계 원칙 1 — “결정론(Determinism)”
+--------------------------------------------
+이 레포의 가장 중요한 비기능 요구사항은 “같은 입력이면 항상 같은 결과”다.
+그 이유:
+- Replay/Clip/Share가 캐시 가능한 정적 산출물이 되며,
+- 테스트가 안정적이고,
+- 운영/분석에서 “재현 가능”이 된다.
+
+결정론의 기준(대표):
+1) Match RNG seed
+  - `packages/sim/neuroleague_sim/rng.py#derive_seed`
+  - seed = sha256(f"{match_id}:{seed_index}")[:8] → u32
+  - 단일 NumPy RNG 스트림 사용(분기 RNG/여러 스트림 회피)
+
+2) Replay digest
+  - `packages/sim/neuroleague_sim/canonical.py`
+  - digest = sha256(canonical_json(header + timeline_events + end_summary + highlights))
+  - canonical JSON은 key 정렬(orjson OPT_SORT_KEYS)로 안정화.
+
+3) Pack hash
+  - `packages/sim/neuroleague_sim/pack_loader.py#compute_pack_hash`
+  - pack.json의 (created_at, pack_hash)를 제외한 canonical JSON sha256
+  - replay header에 pack_hash를 기록하여 “어떤 콘텐츠/규칙”인지 추적.
+
+4) Opponent selection(랭크)
+  - match_id 기반 hash로 후보 중 선택(“같은 match_id면 같은 매치업”).
+  - 풀 부족 시 bot fallback도 deterministic.
+
+5) Render assets 캐시 키
+  - replay.digest + params(start/end/fps/theme/aspect/captions…)를 sha256로 고정.
+  - 동일 입력 → 동일 파일 재사용(artifact key도 안정적).
+
+
+7) 핵심 설계 원칙 2 — “서비스처럼 보이는 기능”을 최소 구현
+----------------------------------------------------------
+단순히 시뮬만 있는 것이 아니라, 실제 서비스의 “성장/운영” 루프를 프로토타입에 포함했다.
+
+대표:
+- Share landing(/s/*) + OG meta + never-404 이미지
+- Clips feed(트렌딩/신규) + like/share/완주 이벤트
+- Experiments(A/B) + daily rollup(ops) + 간단한 bandit auto-weight
+- Referrals(추천) + anti-abuse 게이트(디바이스/IP)
+- Moderation(신고/숨김/soft-ban)
+- Ops 대시보드(Deploy sanity, metrics, featured, quests, discord outbox 등)
+
+
+8) 데이터 저장소(DB/Artifacts/Assets)
+------------------------------------
+DB(로컬):
+- 기본: SQLite 파일 `artifacts/neuroleague.db`
+- 마이그레이션: `services/api/alembic/` + `make db-init`
+
+DB(주요 테이블 개요 — `services/api/neuroleague_api/models.py`)
+- users, wallets
+- blueprints
+- matches, replays
+- render_jobs
+- ratings(Elo)
+- events(성장/분석용 이벤트 로그)
+- experiments, ab_assignments
+- metrics_daily, funnel_daily(rollup 결과)
+- featured_items
+- quests, quest_assignments, quest_events_applied
+- referrals
+- reports, moderation_hides, user_soft_bans, user_hidden_clips
+- discord_outbox, alerts_sent
+
+Artifacts 디렉터리(로컬 기본):
+- `artifacts/replays/`    : replay json
+- `artifacts/clips/`      : 썸네일/클립(gif/webm/mp4)
+- `artifacts/sharecards/` : sharecard PNG
+- `artifacts/models/`     : RL checkpoints 등
+- `artifacts/ops/`        : ops에서 서빙하는 정적 json(예: demo_ids, patch notes override 등)
+
+Public assets 서빙 정책:
+- `/api/assets/{key}` 는 allowlist prefix만 노출:
+  - `clips/`, `sharecards/`, `ops/` 만 허용
+  - DB 파일/민감 파일의 실수 노출 방지 목적
+
+
+9) “게임” 로직(시뮬레이터) — packages/sim
+-----------------------------------------
+엔트리포인트:
+- `packages/sim/neuroleague_sim/simulate.py#simulate_match`
+
+Blueprint 스키마/검증:
+- `packages/sim/neuroleague_sim/models.py#BlueprintSpec`
+  - mode="1v1"이면 team 길이 1, mode="team"이면 길이 3을 강제.
+  - 아이템 슬롯(weapon/armor/utility)도 카탈로그에 존재/슬롯 일치 검사.
+
+전투 모델(개략):
+- tick 기반(초당 20 ticks): `TICKS_PER_SEC = 20`
+- 최대 60초(`MAX_TICKS`)
+- 유닛 스탯:
+  - 기본 스탯: CreatureDef(max_hp, atk, attack_interval_ticks, heal_interval_ticks?)
+  - 아이템은 permille(‰) 기반으로 atk/hp/crit/DR/speed를 수정
+  - Support 역할은 heal_interval_ticks가 있으면 아군 최저 비율 HP 대상 힐
+- 타겟 선택:
+  - 살아있는 적 중 front 우선, 없으면 전체
+  - 그중 HP가 가장 낮은 유닛, 동률이면 RNG로 결정
+
+시너지(Synergy) 처리:
+- 태그별 count를 계산하고 threshold 2/4/6 중 “count 이하 최대 threshold”의 효과 적용.
+- Sigil(시너지 보너스)은 아이템이나 증강/포털에서 count에 추가될 수 있음.
+- replay 이벤트로 `SYNERGY_TRIGGER`를 t=0에 기록(왜 발동했는지 설명 가능하게 payload 포함).
+
+Portal/Augment(매치 변주):
+- `packages/sim/neuroleague_sim/modifiers.py`
+- match_id 기반으로 portal 1개 + 팀별 augment 선택을 결정론적으로 선택.
+- combat_* 수정치(permille) 또는 revive 같은 규칙을 팀에 적용.
+- replay 이벤트로 PORTAL_SELECTED, AUGMENT_OFFERED/CHOSEN/TRIGGER 등을 기록.
+
+Replay 생성:
+- header에 “초기 유닛 스냅샷”을 넣어 프론트가 RNG 없이 상태 복원 가능.
+- highlights는 replay 이벤트에서 결정론적으로 추출(`packages/sim/neuroleague_sim/highlights.py`).
+- digest는 canonical json sha256.
+
+
+10) 매치메이킹/랭크/Elo — services/api + Ray
+--------------------------------------------
+랭크 큐 엔드포인트:
+- `POST /api/ranked/queue` (실제로는 `/api/matches/queue`를 래핑)
+
+중요 조건:
+- 제출된 blueprint만 ranked/tournament 큐 가능.
+- 레이트 리밋/가드레일 존재(설정: `services/api/neuroleague_api/core/config.py#Settings`)
+- 반복 상대 패널티/anti-abuse flag 이벤트 기록(완전 차단이 아닌 관측/감쇠).
+
+상대 선택:
+- 가능한 경우: 다른 유저의 제출된 blueprint 중 Elo가 근접한 후보에서 선택(결정론)
+- 후보가 없으면: seeded bot blueprint 중 match_id 기반으로 deterministic 선택
+- match 응답에는 matchmaking_reason을 포함해 “왜 bot인지” 설명 가능
+
+매치 실행(비동기):
+- Ray task: `services/api/neuroleague_api/ray_tasks.py#ranked_match_job`
+  - seed_set_count 만큼 simulate_match 반복
+  - 다수결 승패 → Elo 업데이트 → replay 저장 → match status/progress 업데이트
+  - queue_type에 따라 이벤트 기록(ranked_done/tournament_done/challenge_done 등) + 퀘스트 반영
+  - best clip prewarm(썸네일/세로 MP4)까지 연결될 수 있음
+
+E2E/CI 빠른 모드:
+- `NEUROLEAGUE_E2E_FAST=1`이면 Ray 없이 동기 실행 경로를 선택해 의존성을 줄인다.
+
+
+11) Replay/Clip/Share 파이프라인
+--------------------------------
+Replay 조회:
+- `GET /api/matches/{match_id}`: status/progress/replay_id 폴링
+- `GET /api/matches/{match_id}/replay` 또는 `GET /api/replays/{replay_id}`: replay JSON
+
+Clip 렌더:
+- 입력: replay JSON(digest 포함) + 구간(start/end ticks) + 포맷(gif/webm/mp4) + 테마/비율/캡션 등
+- 출력: `artifacts/clips/...`에 저장 + `/api/assets/clips/...`로 공개 제공
+- 캐시: cache_key(replay.digest + params)로 동일 입력 재사용
+- Render Job:
+  - 캐시 miss → render_jobs에 queued → Ray task(또는 fast/desktop 경로)로 생성 → done → asset_url 제공
+
+Share landing(/s/*):
+- 서버가 HTML을 반환하며 OG meta를 포함한다(트위터/디스코드/카카오 등 미리보기 용).
+- `/s/clip/{replay_id}`:
+  - og:image는 never-404: 캐시 없으면 placeholder를 반환해 크롤러 실패를 방지
+  - CTA 링크는 `/start?next=...`로 SPA 내부로 안전하게 이동(오픈 리다이렉트 방지)
+- QR:
+  - `/s/qr.png?next=...`는 결정론적 QR PNG를 반환(ETag + immutable 캐시)
+- Creator kit:
+  - `/s/clip/{replay_id}/kit.zip` 형태로 mp4/thumb/caption/qr 등을 zip으로 묶어 제공 가능
+
+Sharecard:
+- v2 권장(HTML→Playwright screenshot): `apps/web/scripts/render_sharecard.mjs`
+- v1 fallback(Pillow 직접 렌더): API 내부 구현
+
+
+12) 성장/분석(Events/Experiments/Metrics)
+-----------------------------------------
+이벤트 수집:
+- `POST /api/events/track` (인증 필요)
+- `POST /api/events` (public; android deeplink 등)
+- 서버가 ip_hash, ua_hash, device/session 등의 컨텍스트를 보강해 events 테이블에 저장.
+
+Experiments(A/B):
+- `services/api/neuroleague_api/experiments.py`
+- 실험 키별 variants(가중치) + deterministic assignment(동일 유저는 동일 variant) + ab_assignments 저장.
+- 일부 실험은 bandit 자동 업데이트 로직도 포함(ops에서 rollup 기반으로 weights 조정).
+
+Metrics rollup:
+- `scripts/metrics_rollup.py` / `make ops-metrics-rollup`
+- events를 집계해 metrics_daily, funnel_daily에 저장(ops 대시보드에서 빠르게 조회).
+
+Clips trending:
+- 최근 7일 + 시간 감쇠(half-life 48h) 기반 점수
+- like/share/fork_click/open_ranked/completion 등 이벤트 가중치 반영(algo v2/v3 등)
+
+
+13) Ops/운영자 기능(관리자)
+--------------------------
+인증:
+- API는 `NEUROLEAGUE_ADMIN_TOKEN`을 설정하고, 요청 헤더 `X-Admin-Token`으로 접근을 허용한다.
+- 프론트는 localStorage `neuroleague.admin_token` 값을 자동으로 헤더에 붙인다(`apps/web/src/lib/api.ts`).
+
+대표 Ops 기능(요약):
+- Deploy sanity(ready 체크/DB/스토리지/Ray/렌더 backlog)
+- Metrics/Funnel 대시보드(rollup 기반)
+- Moderation(신고 인박스, hide/soft-ban)
+- Featured(클립/빌드/유저/챌린지 큐레이션)
+- Quests(오늘의 퀘스트, override/지급)
+- Discord outbox(launch loop, daily post, rate-limit 안전)
+- Packs/Preflight(패치 전 밸런스/리플레이 재현성/풀링 기반 preflight)
+- Weekly theme override(주간 포털/증강 고정)
+
+스케줄러:
+- `services/api/neuroleague_api/scheduler_main.py`
+- deploy compose에서 별도 컨테이너로 실행되며, lock/DB 기반으로 멀티 인스턴스 중복 실행을 피한다(특히 Postgres에서 advisory lock 사용).
+
+
+14) 데스크톱 데모(Electron) / Android(TWA)
+------------------------------------------
+Desktop:
+- `apps/desktop`
+- 동작:
+  - web(dist) 정적 파일을 로컬 포트로 서빙
+  - /api/*, /s/* 등을 로컬 FastAPI로 프록시
+  - FastAPI는 `NEUROLEAGUE_DESKTOP_MODE=1`로 실행되어 로컬 render runner를 켠다(레이/워커 없이도 렌더 가능)
+- Windows 빌드는 GitHub Actions 워크플로로 산출(README 참고).
+
+Android:
+- `apps/android-twa`
+- /s/* 링크가 “설치→열기→정확한 딥링크”로 이어지도록 TWA를 제공.
+- 서버는 `/.well-known/assetlinks.json`를 제공하며, env로 패키지명/서명 fingerprint를 설정한다.
+- 딥링크 열림 이벤트는 public endpoint `POST /api/events`로 기록 가능.
+
+
+15) 테스트(프로젝트 신뢰의 핵심)
+------------------------------
+테스트는 단순 유닛테스트가 아니라, “결정론/OG/렌더/보안/가드레일” 같은
+서비스 핵심 조건을 검증한다.
+
+- `make test` → `pytest -q`
+- 테스트 폴더: `tests/`
+  - determinism: sim/replay/modifiers/draft env 결정론
+  - API schema/guardrails/rate limit/open redirect
+  - share landing OG meta / og:image never-404
+  - render_jobs 파이프라인
+  - build code encode/decode 안전성
+  - ops APIs(weekly override, build-of-day, packs, metrics, moderation 등)
+
+E2E:
+- `make e2e` (내부적으로 Playwright)
+- `NEUROLEAGUE_E2E_FAST=1`로 Ray 의존을 줄인 빠른 경로를 사용 가능.
+
+
+16) “코드 읽기” 추천 순서(처음 보는 AI를 위한 내비게이션)
+-----------------------------------------------------------
+1) `README.md` (명령어/루트 목표)
+2) `docs/ARCHITECTURE_NOTES.md` (엔드투엔드 흐름/설계 요점)
+3) API 엔트리:
+   - `services/api/neuroleague_api/main.py`
+   - `services/api/neuroleague_api/core/config.py`
+   - `services/api/neuroleague_api/models.py`
+4) 게임 코어:
+   - `packages/sim/neuroleague_sim/models.py`
+   - `packages/sim/neuroleague_sim/simulate.py`
+   - `packages/sim/neuroleague_sim/highlights.py`
+   - `packages/sim/neuroleague_sim/modifiers.py`
+   - `packs/default/v1/pack.json` + `packages/sim/neuroleague_sim/pack_loader.py`
+5) 큐/매치:
+   - `services/api/neuroleague_api/routers/matches.py`
+   - `services/api/neuroleague_api/ray_tasks.py`
+6) 공유/클립:
+   - `services/api/neuroleague_api/routers/share.py`
+   - `services/api/neuroleague_api/routers/clips.py`
+   - `services/api/neuroleague_api/clip_render.py`
+7) RL:
+   - `packages/rl/neuroleague_rl/env.py`
+   - `packages/rl/neuroleague_rl/training.py`
+   - `packages/rl/neuroleague_rl/infer.py`
+   - `services/api/neuroleague_api/routers/training.py`
+8) Web:
+   - `apps/web/src/App.tsx`
+   - `apps/web/src/lib/api.ts`
+   - `apps/web/src/pages/*`
+9) 보호/운영:
+   - `services/api/neuroleague_api/routers/ops.py`
+   - `services/api/neuroleague_api/locks.py`
+   - `services/api/neuroleague_api/rate_limit.py`
+10) 테스트:
+   - `tests/`에서 “이 프로젝트가 무엇을 깨지 않으려 하는지”를 역으로 이해한다.
+
+
+17) 변경 시 깨지기 쉬운 “불변 조건” 체크리스트
+----------------------------------------------
+이 레포는 “서비스 프로토타입”이면서 “결정론 기반 파이프라인”이라, 작은 변경이 큰 파급을 줄 수 있다.
+
+필수 불변(깨지면 안 됨):
+- RNG seed 파생 규칙(derive_seed)이 바뀌면 기존 replay 재현성이 깨진다.
+- replay digest 대상 필드/정규화 방식이 바뀌면 캐시/자산 키가 바뀐다(대규모 invalidate 발생).
+- build code decode는 압축폭탄/오버플로를 반드시 방어해야 한다(MAX_DECOMPRESSED_BYTES 유지).
+- /s/* “next” 파라미터는 오픈 리다이렉트가 되지 않도록 상대경로만 허용해야 한다.
+- /api/assets는 allowlist를 유지해야 한다(민감 파일 노출 방지).
+- 프록시 환경에서 `NEUROLEAGUE_PUBLIC_BASE_URL` / allowed hosts / proxy trust 조합을 잘못 건드리면 OG 링크/리다이렉트가 깨질 수 있다.
+
+
+18) 이 문서의 범위/한계
+-----------------------
+- 이 문서는 “현재 레포에 존재하는 코드/문서”를 기준으로 작성되었다.
+- UI export(루트/`ui/`)는 참고용이며, 실제 앱 동작은 `apps/web`가 기준이다.
+- `packages/shared`는 현재 비어 있는 placeholder 디렉터리다.
+
+
+부록 A) 빠른 명령어 모음
+-----------------------
+- 로컬 전체 실행: `make dev`
+- API만: `make api`
+- Web만: `make web`
+- 마이그레이션: `make db-init`
+- 시드: `make seed-data` / `make seed-data-reset`
+- 테스트: `make test`
+- E2E(빠른 모드): `NEUROLEAGUE_E2E_FAST=1 make e2e`
+- prod-like compose: `make prod-up`
+- deploy compose(레퍼런스): `make deploy-up`
+

@@ -18,6 +18,11 @@ from neuroleague_api.build_code import (
 from neuroleague_api.core.config import Settings
 from neuroleague_api.deps import CurrentUserId, DBSession
 from neuroleague_api.eventlog import log_event
+from neuroleague_api.blueprint_lineage import (
+    compute_root_and_depth,
+    ensure_persisted_root_and_depth,
+    increment_fork_counts,
+)
 from neuroleague_api.models import Blueprint
 from neuroleague_sim.canonical import canonical_json_bytes, canonical_sha256
 from neuroleague_sim.models import BlueprintSpec
@@ -195,6 +200,25 @@ def import_endpoint(
     )
     forked_from_id = str(parent.id) if parent else None
 
+    fork_root_blueprint_id: str | None = None
+    fork_depth = 0
+    chain_ids: list[str] = []
+    if parent is not None:
+        fork_root_blueprint_id, parent_depth, chain_ids = compute_root_and_depth(
+            db, blueprint=parent
+        )
+        fork_depth = int(parent_depth) + 1
+        if (
+            str(getattr(parent, "fork_root_blueprint_id", "") or "").strip()
+            != str(fork_root_blueprint_id)
+        ):
+            ensure_persisted_root_and_depth(
+                db,
+                blueprint_id=str(parent.id),
+                root_blueprint_id=str(fork_root_blueprint_id),
+                depth=int(parent_depth),
+            )
+
     origin_hash = build_code_hash(build_code=req.code)
     pack_hash = _active_pack_hash()
     build_code = encode_build_code(spec=spec, pack_hash=pack_hash)
@@ -229,6 +253,9 @@ def import_endpoint(
         spec_hash=str(spec_hash),
         meta_json=orjson.dumps(meta).decode("utf-8"),
         forked_from_id=forked_from_id,
+        fork_root_blueprint_id=fork_root_blueprint_id,
+        fork_depth=int(fork_depth),
+        fork_count=0,
         build_code=build_code,
         origin_code_hash=origin_hash,
         submitted_at=None,
@@ -236,6 +263,8 @@ def import_endpoint(
         updated_at=now,
     )
     db.add(bp)
+    if chain_ids:
+        increment_fork_counts(db, blueprint_ids=chain_ids, delta=1)
     db.commit()
 
     try:
@@ -253,6 +282,24 @@ def import_endpoint(
                 "origin_code_hash": origin_hash,
             },
         )
+        if forked_from_id:
+            log_event(
+                db,
+                type="fork_created",
+                user_id=user_id,
+                request=request,
+                payload={
+                    "new_blueprint_id": bp.id,
+                    "parent_blueprint_id": forked_from_id,
+                    "fork_root_blueprint_id": fork_root_blueprint_id,
+                    "fork_depth": int(fork_depth),
+                    "source_replay_id": None,
+                    "source": "build_code_import",
+                    "mode": str(spec.mode),
+                    "ruleset_version": str(spec.ruleset_version),
+                    "origin_code_hash": origin_hash,
+                },
+            )
         try:
             from neuroleague_api.quests_engine import apply_event_to_quests
 
@@ -274,6 +321,10 @@ def import_endpoint(
         "spec_hash": bp.spec_hash,
         "meta": meta,
         "forked_from_id": bp.forked_from_id,
+        "parent_blueprint_id": bp.forked_from_id,
+        "fork_root_blueprint_id": getattr(bp, "fork_root_blueprint_id", None),
+        "fork_depth": int(getattr(bp, "fork_depth", 0) or 0),
+        "fork_count": int(getattr(bp, "fork_count", 0) or 0),
         "build_code": bp.build_code,
         "submitted_at": None,
         "updated_at": bp.updated_at.isoformat(),

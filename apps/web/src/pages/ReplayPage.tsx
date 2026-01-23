@@ -6,6 +6,7 @@ import {
   Eye,
   EyeOff,
   Flame,
+  GitFork,
   Maximize2,
   Pause,
   Play,
@@ -267,6 +268,44 @@ export const ReplayPage: React.FC = () => {
       a.rel = 'noopener';
       a.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    },
+  });
+
+  const remixMutation = useMutation({
+    mutationFn: async () => {
+      const blueprintId = match?.blueprint_a_id;
+      if (!blueprintId) throw new Error('No blueprint attached to this replay');
+      const sourceReplayId = match?.replay_id ?? null;
+
+      try {
+        await apiFetch('/api/events/track', {
+          method: 'POST',
+          body: JSON.stringify({
+            type: 'fork_click',
+            source: 'clip_view',
+            ref: me?.user_id ?? null,
+            utm: {},
+            meta: { match_id: match?.id, replay_id: sourceReplayId, blueprint_id: blueprintId },
+          }),
+        });
+      } catch {
+        // ignore
+      }
+
+      const forked = await apiFetch<BlueprintOut>(`/api/blueprints/${encodeURIComponent(blueprintId)}/fork`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: 'Remix',
+          source_replay_id: sourceReplayId,
+          source: 'clip_view',
+          note: 'remix:clip_view',
+          auto_submit: false,
+        }),
+      });
+      return forked.id;
+    },
+    onSuccess: (forkedId) => {
+      navigate(`/forge/${encodeURIComponent(forkedId)}`);
     },
   });
 
@@ -719,6 +758,15 @@ export const ReplayPage: React.FC = () => {
               aria-pressed={showOverlay}
             >
               {showOverlay ? <EyeOff size={16} className="mr-2" /> : <Eye size={16} className="mr-2" />} {t.overlay}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => remixMutation.mutate()}
+              disabled={!match?.blueprint_a_id || remixMutation.isPending}
+              isLoading={remixMutation.isPending}
+            >
+              <GitFork size={16} className="mr-2" /> {lang === 'ko' ? '리믹스' : 'Remix'}
             </Button>
             <Button
               variant="secondary"

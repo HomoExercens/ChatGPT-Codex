@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     rate_limit_follow_per_minute_ip: int = 120
     rate_limit_follow_per_hour_ip: int = 2000
 
+    rate_limit_blueprint_fork_per_minute: int = 12
+    rate_limit_blueprint_fork_per_hour: int = 200
+    rate_limit_blueprint_fork_per_minute_ip: int = 60
+    rate_limit_blueprint_fork_per_hour_ip: int = 1200
+
     rate_limit_ranked_queue_per_minute: int = 6
     rate_limit_ranked_queue_per_hour: int = 80
     rate_limit_ranked_queue_per_minute_ip: int = 30

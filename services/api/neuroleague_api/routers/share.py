@@ -886,6 +886,8 @@ def clip_landing(
     challenge_id: str | None = None
     blueprint_id: str | None = None
     cta_order_variant: str = "beat_then_remix"
+    remix_cta_variant: str = "control"
+    remix_cta_label: str = "Fork & Remix"
 
     with SessionLocal() as db:  # independent session; share pages are public
         replay = db.get(Replay, replay_id)
@@ -945,21 +947,41 @@ def clip_landing(
         except Exception:  # noqa: BLE001
             challenge_id = None
 
+        anon_id: str | None = None
         try:
             anon_seed = (
                 f"{ip_hash_from_request(request) or ''}|"
                 f"{user_agent_hash_from_request(request) or ''}"
             )
             anon_id = hashlib.sha256(anon_seed.encode("utf-8")).hexdigest()
-            order_variant, _cfg, _is_new = assign_experiment(
-                db,
-                subject_type="anon",
-                subject_id=anon_id,
-                experiment_key="share_landing_clip_order",
-            )
-            cta_order_variant = str(order_variant or "beat_then_remix")
         except Exception:  # noqa: BLE001
-            cta_order_variant = "beat_then_remix"
+            anon_id = None
+
+        if anon_id:
+            try:
+                order_variant, _cfg, _is_new = assign_experiment(
+                    db,
+                    subject_type="anon",
+                    subject_id=anon_id,
+                    experiment_key="share_landing_clip_order",
+                )
+                cta_order_variant = str(order_variant or "beat_then_remix")
+            except Exception:  # noqa: BLE001
+                cta_order_variant = "beat_then_remix"
+            try:
+                remix_variant, remix_cfg, _is_new = assign_experiment(
+                    db,
+                    subject_type="anon",
+                    subject_id=anon_id,
+                    experiment_key="remix_cta_v1",
+                )
+                remix_cta_variant = str(remix_variant or "control")
+                lbl = remix_cfg.get("label") if isinstance(remix_cfg, dict) else None
+                if isinstance(lbl, str) and lbl.strip():
+                    remix_cta_label = lbl.strip()[:80]
+            except Exception:  # noqa: BLE001
+                remix_cta_variant = "control"
+                remix_cta_label = "Fork & Remix"
 
         try:
             log_event(
@@ -979,6 +1001,8 @@ def clip_landing(
                     "variants": {
                         "clip_len_v1": clip_len_variant,
                         "captions_v2": forced_template_id,
+                        "share_landing_clip_order": cta_order_variant,
+                        "remix_cta_v1": remix_cta_variant,
                     },
                     "captions_version": forced_captions_version,
                     "captions_template_id": forced_template_id,
@@ -999,6 +1023,8 @@ def clip_landing(
                     "variants": {
                         "clip_len_v1": clip_len_variant,
                         "captions_v2": forced_template_id,
+                        "share_landing_clip_order": cta_order_variant,
+                        "remix_cta_v1": remix_cta_variant,
                     },
                     "captions_version": forced_captions_version,
                     "captions_template_id": forced_template_id,
@@ -1102,14 +1128,21 @@ def clip_landing(
 
     remix_url: str | None = None
     if blueprint_id:
-        remix_url = _start_href(
-            next_path=f"/forge?bp={quote(blueprint_id, safe='')}",
-            ref=ref,
-            src="s/clip_remix",
-            lenv=clip_len_variant,
-            cv=forced_captions_version,
-            ctpl=forced_template_id,
+        remix_url = (
+            f"/remix?blueprint_id={quote(blueprint_id, safe='')}"
+            f"&replay_id={quote(replay_id, safe='')}"
+            f"&src=share_landing"
         )
+        if remix_cta_variant:
+            remix_url += f"&rxv={quote(str(remix_cta_variant), safe='')}"
+        if ref:
+            remix_url += f"&ref={quote(str(ref), safe='')}"
+        if clip_len_variant:
+            remix_url += f"&lenv={quote(str(clip_len_variant), safe='')}"
+        if forced_captions_version:
+            remix_url += f"&cv={quote(str(forced_captions_version), safe='')}"
+        if forced_template_id:
+            remix_url += f"&ctpl={quote(str(forced_template_id), safe='')}"
 
     ranked_url = _start_href(
         next_path="/ranked",
@@ -1217,7 +1250,7 @@ def clip_landing(
 
     beat_cta = f'<a class="cta secondary" href="{html.escape(beat_url)}">Beat This</a>'
     remix_cta = (
-        f'<a class="cta secondary" href="{html.escape(remix_url)}">Remix This</a>'
+        f'<a class="cta secondary" href="{html.escape(remix_url)}">{html.escape(remix_cta_label)}</a>'
         if remix_url
         else ""
     )

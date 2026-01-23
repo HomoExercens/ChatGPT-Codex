@@ -152,7 +152,11 @@ export const ClipsPage: React.FC = () => {
     if (existing) return existing;
     const forked = await apiFetch<BlueprintOut>(`/api/blueprints/${encodeURIComponent(item.blueprint_id)}/fork`, {
       method: 'POST',
-      body: JSON.stringify({ name: `${item.blueprint_name ?? 'Build'} (Remix)` }),
+      body: JSON.stringify({
+        name: `${item.blueprint_name ?? 'Build'} (Remix)`,
+        source_replay_id: item.replay_id,
+        note: 'clips_feed',
+      }),
     });
     setSlideState((s) => ({ ...s, [item.replay_id]: { ...(s[item.replay_id] ?? {}), forkedBlueprintId: forked.id } }));
     return forked.id;
@@ -165,7 +169,7 @@ export const ClipsPage: React.FC = () => {
       return forkedId;
     },
     onSuccess: (forkedId) => {
-      navigate(`/forge?bp=${encodeURIComponent(forkedId)}`);
+      navigate(`/forge/${encodeURIComponent(forkedId)}`);
     },
   });
 

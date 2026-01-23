@@ -31,6 +31,10 @@ EventType = Literal[
     "first_replay_open",
     "replay_open",
     "blueprint_fork",
+    # Remix flywheel v1.
+    "fork_click",
+    "fork_created",
+    "lineage_viewed",
     "blueprint_submit",
     "ranked_queue",
     "ranked_done",

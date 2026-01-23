@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import orjson
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,12 @@ from neuroleague_api.build_code import decode_build_code, encode_build_code
 from neuroleague_api.core.config import Settings
 from neuroleague_api.deps import CurrentUserId, DBSession
 from neuroleague_api.eventlog import log_event
+from neuroleague_api.rate_limit import check_rate_limit_dual
+from neuroleague_api.blueprint_lineage import (
+    compute_root_and_depth,
+    ensure_persisted_root_and_depth,
+    increment_fork_counts,
+)
 from neuroleague_api.models import Blueprint, Event, User
 from neuroleague_sim.canonical import canonical_json_bytes, canonical_sha256
 from neuroleague_sim.models import BlueprintSpec
@@ -40,6 +46,11 @@ class BlueprintOut(BaseModel):
     spec_hash: str
     meta: dict[str, Any] = Field(default_factory=dict)
     forked_from_id: str | None = None
+    parent_blueprint_id: str | None = None
+    fork_root_blueprint_id: str | None = None
+    fork_depth: int = 0
+    fork_count: int = 0
+    source_replay_id: str | None = None
     build_code: str | None = None
     submitted_at: datetime | None = None
     updated_at: datetime
@@ -122,6 +133,11 @@ def _out_from_bp(db: Session, *, bp: Blueprint) -> BlueprintOut:
         spec_hash=bp.spec_hash,
         meta=meta,
         forked_from_id=bp.forked_from_id,
+        parent_blueprint_id=bp.forked_from_id,
+        fork_root_blueprint_id=getattr(bp, "fork_root_blueprint_id", None),
+        fork_depth=int(getattr(bp, "fork_depth", 0) or 0),
+        fork_count=int(getattr(bp, "fork_count", 0) or 0),
+        source_replay_id=getattr(bp, "source_replay_id", None),
         build_code=build_code,
         submitted_at=bp.submitted_at if bp.status == "submitted" else None,
         updated_at=bp.updated_at,
@@ -446,6 +462,10 @@ def import_blueprint(
 
 class BlueprintForkRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=64)
+    note: str | None = Field(default=None, max_length=280)
+    source_replay_id: str | None = Field(default=None, max_length=64)
+    source: str | None = Field(default=None, max_length=64)
+    auto_submit: bool = False
 
 
 @router.post("/{blueprint_id}/fork", response_model=BlueprintOut)
@@ -462,6 +482,25 @@ def fork_blueprint(
     if src.user_id != user_id and src.status != "submitted":
         raise HTTPException(status_code=404, detail="Blueprint not found")
 
+    settings = Settings()
+    check_rate_limit_dual(
+        user_id=user_id,
+        request=request,
+        action="blueprint_fork",
+        per_minute_user=int(settings.rate_limit_blueprint_fork_per_minute),
+        per_hour_user=int(settings.rate_limit_blueprint_fork_per_hour),
+        per_minute_ip=int(settings.rate_limit_blueprint_fork_per_minute_ip),
+        per_hour_ip=int(settings.rate_limit_blueprint_fork_per_hour_ip),
+        extra_detail={"source_blueprint_id": str(src.id)},
+    )
+
+    root_id, src_depth, chain_ids = compute_root_and_depth(db, blueprint=src)
+    # Best-effort backfill for old rows (helps future forks avoid extra traversals).
+    if str(getattr(src, "fork_root_blueprint_id", "") or "").strip() != str(root_id):
+        ensure_persisted_root_and_depth(
+            db, blueprint_id=str(src.id), root_blueprint_id=str(root_id), depth=src_depth
+        )
+
     try:
         spec = BlueprintSpec.model_validate(orjson.loads(src.spec_json))
         build_code = encode_build_code(spec=spec, pack_hash=_active_pack_hash())
@@ -470,6 +509,9 @@ def fork_blueprint(
 
     now = datetime.now(UTC)
     name = req.name or f"{src.name} (Fork)"
+    note = (req.note or "").strip()[:280] if req.note else None
+    source_replay_id = (req.source_replay_id or "").strip()[:64] if req.source_replay_id else None
+    source = (req.source or "").strip()[:64] if req.source else None
     bp = Blueprint(
         id=f"bp_{uuid4().hex}",
         user_id=user_id,
@@ -485,17 +527,35 @@ def fork_blueprint(
                     "type": "fork",
                     "forked_from_id": src.id,
                     "forked_from_user_id": src.user_id,
+                    **({"ui_source": source} if source else {}),
+                    **({"note": note} if note else {}),
+                    **({"source_replay_id": source_replay_id} if source_replay_id else {}),
                 }
             }
         ).decode("utf-8"),
         forked_from_id=src.id,
+        fork_root_blueprint_id=str(root_id),
+        fork_depth=int(src_depth) + 1,
+        fork_count=0,
+        source_replay_id=source_replay_id,
         build_code=build_code,
         submitted_at=None,
         created_at=now,
         updated_at=now,
     )
     db.add(bp)
+    # Update cached fork counts for ancestors (root -> ... -> src).
+    increment_fork_counts(db, blueprint_ids=chain_ids, delta=1)
     db.commit()
+
+    if req.auto_submit:
+        try:
+            # Reuse submit rules (cooldown, events) by calling our own endpoint logic.
+            # If cooldown blocks submission, keep the fork as draft.
+            _ = submit_blueprint(request, bp.id, user_id=user_id, db=db)
+            bp = db.get(Blueprint, bp.id) or bp
+        except Exception:  # noqa: BLE001
+            pass
     try:
         ev = log_event(
             db,
@@ -505,6 +565,22 @@ def fork_blueprint(
             payload={
                 "source_blueprint_id": src.id,
                 "blueprint_id": bp.id,
+                "mode": str(bp.mode or ""),
+                "ruleset_version": str(bp.ruleset_version or ""),
+            },
+        )
+        log_event(
+            db,
+            type="fork_created",
+            user_id=user_id,
+            request=request,
+            payload={
+                "new_blueprint_id": bp.id,
+                "parent_blueprint_id": src.id,
+                "fork_root_blueprint_id": str(root_id),
+                "fork_depth": int(src_depth) + 1,
+                "source_replay_id": source_replay_id,
+                "source": source or "blueprint_fork",
                 "mode": str(bp.mode or ""),
                 "ruleset_version": str(bp.ruleset_version or ""),
             },
@@ -548,13 +624,24 @@ class LineageNode(BaseModel):
     forked_from_id: str | None = None
     build_code: str | None = None
     children_count: int = 0
+    fork_root_blueprint_id: str | None = None
+    fork_depth: int | None = None
+    fork_count: int | None = None
+    source_replay_id: str | None = None
     origin_code_hash: str | None = None
 
 
 class BlueprintLineageOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     blueprint_id: str
     chain: list[LineageNode]
     children: list[LineageNode] = Field(default_factory=list)
+    root: LineageNode | None = None
+    ancestors: list[LineageNode] = Field(default_factory=list)
+    self_node: LineageNode | None = Field(default=None, alias="self")
+    fork_depth: int | None = None
+    fork_count: int | None = None
 
 
 @router.get("/{blueprint_id}/lineage", response_model=BlueprintLineageOut)
@@ -570,7 +657,7 @@ def lineage(
     chain: list[Blueprint] = []
     seen: set[str] = set()
     cur: Blueprint | None = bp
-    for _ in range(10):
+    for _ in range(20):
         if not cur or cur.id in seen:
             break
         seen.add(cur.id)
@@ -612,6 +699,10 @@ def lineage(
                 forked_from_id=node.forked_from_id,
                 build_code=_maybe_compute_build_code(db, bp=node),
                 children_count=int(child_counts.get(node.id) or 0),
+                fork_root_blueprint_id=getattr(node, "fork_root_blueprint_id", None),
+                fork_depth=int(getattr(node, "fork_depth", 0) or 0),
+                fork_count=int(getattr(node, "fork_count", 0) or 0),
+                source_replay_id=getattr(node, "source_replay_id", None),
                 origin_code_hash=getattr(node, "origin_code_hash", None),
             )
         )
@@ -653,7 +744,7 @@ def lineage(
         upd = n.updated_at or datetime.fromtimestamp(0, tz=UTC)
         return forks, sub, upd, str(n.id)
 
-    child_nodes_sorted = sorted(child_nodes, key=_sort_key, reverse=True)[:6]
+    child_nodes_sorted = sorted(child_nodes, key=_sort_key, reverse=True)
     out_children: list[LineageNode] = []
     for node in child_nodes_sorted:
         u = user_by_id.get(node.user_id)
@@ -668,8 +759,40 @@ def lineage(
                 forked_from_id=node.forked_from_id,
                 build_code=_maybe_compute_build_code(db, bp=node),
                 children_count=int(children_counts.get(node.id) or 0),
+                fork_root_blueprint_id=getattr(node, "fork_root_blueprint_id", None),
+                fork_depth=int(getattr(node, "fork_depth", 0) or 0),
+                fork_count=int(getattr(node, "fork_count", 0) or 0),
+                source_replay_id=getattr(node, "source_replay_id", None),
                 origin_code_hash=getattr(node, "origin_code_hash", None),
             )
         )
 
-    return BlueprintLineageOut(blueprint_id=bp.id, chain=out_chain, children=out_children)
+    root = out_chain[-1] if out_chain else None
+    ancestors = list(reversed(out_chain[1:])) if len(out_chain) > 1 else []
+    self_node = out_chain[0] if out_chain else None
+    computed_depth = max(0, len(chain) - 1)
+    if chain:
+        root_id = str(chain[-1].id)
+        if str(getattr(bp, "fork_root_blueprint_id", "") or "").strip() != root_id or int(
+            getattr(bp, "fork_depth", 0) or 0
+        ) != int(computed_depth):
+            ensure_persisted_root_and_depth(
+                db,
+                blueprint_id=str(bp.id),
+                root_blueprint_id=root_id,
+                depth=int(computed_depth),
+            )
+            try:
+                db.commit()
+            except Exception:  # noqa: BLE001
+                pass
+    return BlueprintLineageOut(
+        blueprint_id=bp.id,
+        chain=out_chain,
+        children=out_children,
+        root=root,
+        ancestors=ancestors,
+        self_node=self_node,
+        fork_depth=int(computed_depth),
+        fork_count=int(getattr(bp, "fork_count", 0) or 0),
+    )

@@ -198,6 +198,24 @@
   - Vertical(9:16) best clip이 있으면 video, 없으면 `/s/clip/.../thumb.png`로 fallback
   - CTA: Like/Share(Remote link)/Remix(fork→Forge)/Rank(포크+제출+큐)
 
+## Blueprint Lineage / Fork (Remix Flywheel v1)
+- DB: `blueprints`에 lineage 캐시 컬럼을 추가해 “부모 1명 + 자식 다수” 트리를 유지
+  - `forked_from_id` = parent blueprint id(기존 필드)
+  - `fork_root_blueprint_id` = lineage root id
+  - `fork_depth` = root로부터 depth(0=root)
+  - `fork_count` = 누적 fork 수(ancestor에 캐시 업데이트)
+  - `source_replay_id` = 어디서 포크됐는지(주로 `/s/clip/{replay_id}`)
+- API:
+  - `POST /api/blueprints/{blueprint_id}/fork` → spec 복제 + lineage 계산 + fork_count 캐시 업데이트
+  - `GET /api/blueprints/{blueprint_id}/lineage` → `root/ancestors/self/children` + back-compat `chain`
+  - Blueprint 조회 응답에 `fork_count`, `fork_root_blueprint_id`, `fork_depth` 포함
+- Web:
+  - Share Landing의 Remix CTA는 `/remix?...`로 진입 → (필요 시) `/start?next=...` → fork 생성 → `/forge/{new_blueprint_id}`
+  - Forge에서 lineage UI(루트→…→내 빌드)와 `Remixes {fork_count}`를 노출
+- Analytics:
+  - Events: `fork_click`, `fork_created`, `lineage_viewed`
+  - Rollup: `metrics_daily.fork_click_events`, `metrics_daily.fork_created_events`, funnel `remix_v1`
+
 ## Share Deep Link (/start) + Referrals
 - `/start?next=...&ref=...` (SPA route):
   - 토큰이 없으면 자동으로 `POST /api/auth/guest`를 호출해 guest 토큰을 발급

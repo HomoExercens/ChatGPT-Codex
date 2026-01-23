@@ -61,12 +61,12 @@ export const GalleryPage: React.FC = () => {
     mutationFn: async (blueprintId: string) =>
       apiFetch<{ id: string }>(`/api/blueprints/${encodeURIComponent(blueprintId)}/fork`, {
         method: 'POST',
-        body: JSON.stringify({}),
+        body: JSON.stringify({ note: 'gallery' }),
       }),
     onSuccess: async (bp) => {
       await queryClient.invalidateQueries({ queryKey: ['blueprints'] });
       const id = (bp as any)?.id;
-      if (typeof id === 'string' && id) navigate(`/forge?bp=${encodeURIComponent(id)}`);
+      if (typeof id === 'string' && id) navigate(`/forge/${encodeURIComponent(id)}`);
     },
   });
 

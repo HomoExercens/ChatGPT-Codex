@@ -149,7 +149,7 @@ export const TrainingPage: React.FC = () => {
     },
     onSuccess: async (res) => {
       await queryClient.invalidateQueries({ queryKey: ['blueprints'] });
-      navigate(`/forge?bp=${encodeURIComponent(res.blueprint_id)}`);
+      navigate(`/forge/${encodeURIComponent(res.blueprint_id)}`);
     },
   });
 

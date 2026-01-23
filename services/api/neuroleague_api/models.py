@@ -57,7 +57,21 @@ class Blueprint(Base):
     spec_hash: Mapped[str] = mapped_column(String, nullable=False, index=True)
     meta_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     forked_from_id: Mapped[str | None] = mapped_column(
-        String, ForeignKey("blueprints.id", ondelete="SET NULL"), nullable=True
+        String,
+        ForeignKey("blueprints.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    fork_root_blueprint_id: Mapped[str | None] = mapped_column(
+        String,
+        ForeignKey("blueprints.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    fork_depth: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    fork_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    source_replay_id: Mapped[str | None] = mapped_column(
+        String, nullable=True, index=True
     )
     build_code: Mapped[str | None] = mapped_column(String, nullable=True)
     origin_code_hash: Mapped[str | None] = mapped_column(

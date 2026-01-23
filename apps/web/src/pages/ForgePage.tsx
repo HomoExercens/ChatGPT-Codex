@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, Info, Save, Shield, UploadCloud, UserPlus } from 'lucide-react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input } from '../components/ui';
 import { MOCK_CREATURES } from '../domain/constants';
@@ -106,10 +106,11 @@ const ITEM_OPTIONS: Record<'weapon' | 'armor' | 'utility', Array<{ id: string; n
 export const ForgePage: React.FC = () => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { bpId: pathBlueprintId } = useParams<{ bpId?: string }>();
   const [searchParams] = useSearchParams();
   const lang = useSettingsStore((s) => s.language);
   const t = TRANSLATIONS[lang].common;
-  const preselectBlueprintId = searchParams.get('bp');
+  const preselectBlueprintId = pathBlueprintId || searchParams.get('bp');
   const importFromQuery = searchParams.get('import');
 
   const { data: blueprints = [] } = useQuery({
@@ -128,8 +129,43 @@ export const ForgePage: React.FC = () => {
     enabled: Boolean(blueprint?.id),
     staleTime: 10_000,
   });
-  const lineageChain = lineage?.chain ?? [];
+  const lineageChain = useMemo(() => {
+    const chain = lineage?.chain ?? [];
+    return [...chain].reverse(); // root -> ... -> self
+  }, [lineage?.chain]);
   const lineageChildren = lineage?.children ?? [];
+
+  const lineageViewTracked = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!blueprint?.id) return;
+    if (!lineage?.chain?.length) return;
+    if (lineageViewTracked.current.has(blueprint.id)) return;
+    lineageViewTracked.current.add(blueprint.id);
+    apiFetch('/api/events/track', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'lineage_viewed',
+        source: 'forge',
+        ref: null,
+        utm: {},
+        meta: {
+          blueprint_id: blueprint.id,
+          parent_blueprint_id: blueprint.parent_blueprint_id ?? blueprint.forked_from_id ?? null,
+          fork_root_blueprint_id: blueprint.fork_root_blueprint_id ?? null,
+          fork_depth: blueprint.fork_depth ?? null,
+        },
+      }),
+    }).catch(() => {
+      // ignore
+    });
+  }, [
+    blueprint?.fork_depth,
+    blueprint?.fork_root_blueprint_id,
+    blueprint?.forked_from_id,
+    blueprint?.id,
+    blueprint?.parent_blueprint_id,
+    lineage?.chain?.length,
+  ]);
 
   useEffect(() => {
     if (blueprints.length === 0) return;
@@ -325,7 +361,7 @@ export const ForgePage: React.FC = () => {
       decodeBuildCodeMutation.reset();
       await queryClient.invalidateQueries({ queryKey: ['blueprints'] });
       setBlueprintId(id);
-      navigate(`/forge?bp=${encodeURIComponent(id)}`);
+      navigate(`/forge/${encodeURIComponent(id)}`);
     },
     onError: (err) => {
       const msg = err instanceof Error ? err.message : String(err);
@@ -571,6 +607,7 @@ export const ForgePage: React.FC = () => {
               onChange={(e) => setDraftName(e.target.value)}
             />
             {blueprint?.status === 'draft' ? <Badge variant="warning">{t.draft}</Badge> : <Badge variant="success">Submitted</Badge>}
+            {typeof blueprint?.fork_count === 'number' ? <Badge variant="neutral">Remixes {blueprint.fork_count}</Badge> : null}
           </div>
           <div className="flex gap-2">
             <Button
@@ -776,9 +813,31 @@ export const ForgePage: React.FC = () => {
 
           <div className="pt-4 border-t border-slate-100 space-y-3">
             <h4 className="text-xs font-bold text-slate-400 uppercase">Lineage</h4>
+            <div className="flex flex-wrap gap-2">
+              {blueprint?.forked_from_id ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => (window.location.href = `/s/build/${encodeURIComponent(blueprint.forked_from_id!)}`)}
+                >
+                  View Parent
+                </Button>
+              ) : null}
+              {blueprint?.status === 'submitted' ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => (window.location.href = `/s/build/${encodeURIComponent(blueprint.id)}`)}
+                >
+                  Share Remix
+                </Button>
+              ) : null}
+            </div>
             {lineageChain.length ? (
               <div className="space-y-2">
-                {lineageChain.slice(0, 6).map((n, idx) => (
+                {lineageChain.map((n, idx) => {
+                  const isSelf = idx === lineageChain.length - 1;
+                  return (
                   <div key={n.blueprint_id} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -787,11 +846,14 @@ export const ForgePage: React.FC = () => {
                           by {n.display_name} · <span className="font-mono">{n.blueprint_id}</span>
                         </div>
                       </div>
-                      <Badge variant={n.status === 'submitted' ? 'success' : 'neutral'}>{n.status}</Badge>
+                      <Badge variant={isSelf ? 'brand' : n.status === 'submitted' ? 'success' : 'neutral'}>
+                        {isSelf ? 'You' : n.status}
+                      </Badge>
                     </div>
                     <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
-                      {typeof n.children_count === 'number' ? <span>forks: {n.children_count}</span> : null}
-                      {idx === 0 && n.origin_code_hash ? (
+                      {typeof n.fork_count === 'number' ? <span>remixes: {n.fork_count}</span> : null}
+                      {typeof n.children_count === 'number' ? <span>direct forks: {n.children_count}</span> : null}
+                      {isSelf && n.origin_code_hash ? (
                         <span className="font-mono">origin: {String(n.origin_code_hash).slice(0, 10)}…</span>
                       ) : null}
                     </div>
@@ -807,7 +869,8 @@ export const ForgePage: React.FC = () => {
                       </div>
                     ) : null}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="text-xs text-slate-500">Lineage not available.</div>
@@ -829,7 +892,8 @@ export const ForgePage: React.FC = () => {
                         <Badge variant={n.status === 'submitted' ? 'success' : 'neutral'}>{n.status}</Badge>
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
-                        {typeof n.children_count === 'number' ? <span>forks: {n.children_count}</span> : null}
+                        {typeof n.fork_count === 'number' ? <span>remixes: {n.fork_count}</span> : null}
+                        {typeof n.children_count === 'number' ? <span>direct forks: {n.children_count}</span> : null}
                       </div>
                       {n.status === 'submitted' ? (
                         <div className="mt-2">

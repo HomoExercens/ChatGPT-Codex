@@ -111,11 +111,11 @@ export const HomePage: React.FC = () => {
     mutationFn: async (blueprintId: string) =>
       apiFetch<BlueprintOut>(`/api/blueprints/${encodeURIComponent(blueprintId)}/fork`, {
         method: 'POST',
-        body: JSON.stringify({}),
+        body: JSON.stringify({ note: 'home_build_of_day' }),
       }),
     onSuccess: async (bp) => {
       await queryClient.invalidateQueries({ queryKey: ['blueprints'] });
-      if (bp?.id) navigate(`/forge?bp=${encodeURIComponent(bp.id)}`);
+      if (bp?.id) navigate(`/forge/${encodeURIComponent(bp.id)}`);
     },
   });
 

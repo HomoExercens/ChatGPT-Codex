@@ -45,6 +45,15 @@ DEFAULT_EXPERIMENTS: dict[str, dict[str, Any]] = {
             {"id": "remix_then_beat", "weight": 0.0, "config": {"order": "remix_then_beat"}},
         ],
     },
+    # Remix CTA copy on /s/clip (anonymous traffic).
+    "remix_cta_v1": {
+        "status": "running",
+        "variants": [
+            {"id": "control", "weight": 0.34, "config": {"label": "Fork & Remix"}},
+            {"id": "variant_a", "weight": 0.33, "config": {"label": "Remix (Edit this build)"}},
+            {"id": "variant_b", "weight": 0.33, "config": {"label": "Remix (이 빌드 개조하기)"}},
+        ],
+    },
     "share_cta_copy": {
         "status": "running",
         "variants": [

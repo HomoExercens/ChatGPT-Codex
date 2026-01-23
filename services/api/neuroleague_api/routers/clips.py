@@ -351,6 +351,8 @@ def feed(
             "clip_view": 1.0,
             "clip_share": 5.0,
             "clip_fork_click": 6.0,
+            "fork_click": 6.0,
+            "fork_created": 9.0,
             "clip_open_ranked": 4.0,
         }
         like_weight = 3.0
@@ -361,6 +363,8 @@ def feed(
             "clip_completion": 2.0,
             "clip_share": 5.0,
             "clip_fork_click": 7.0,
+            "fork_click": 7.0,
+            "fork_created": 12.0,
             "clip_open_ranked": 9.0,
         }
         like_weight = 2.0
@@ -371,6 +375,8 @@ def feed(
             "clip_completion": 3.0,
             "clip_share": 5.0,
             "clip_fork_click": 8.0,
+            "fork_click": 8.0,
+            "fork_created": 14.0,
             "clip_open_ranked": 12.0,
         }
         like_weight = 1.75
@@ -390,17 +396,31 @@ def feed(
             return {}
         return obj if isinstance(obj, dict) else {}
 
+    def _extract_replay_id(p: dict[str, Any]) -> str:
+        rid = p.get("replay_id") or p.get("source_replay_id")
+        if rid:
+            return str(rid)
+        meta = p.get("meta")
+        if isinstance(meta, dict):
+            rid2 = meta.get("replay_id") or meta.get("source_replay_id")
+            if rid2:
+                return str(rid2)
+        return ""
+
     # Aggregate stats + trending score.
     stats: dict[str, dict[str, float]] = {}
     seen: set[tuple[str, str, str, str]] = set()
     for ev in events:
         p = _payload(ev)
-        rid = str(p.get("replay_id") or "")
+        rid = _extract_replay_id(p)
         if not rid or rid not in likes_by_replay and rid not in replay_ids:
             continue
         uid = str(ev.user_id or "anon")
         day = (_as_aware(ev.created_at) or now).strftime("%Y%m%d")
-        key = (rid, str(ev.type), uid, day)
+        dedupe_type = str(ev.type)
+        if dedupe_type in {"clip_fork_click", "fork_click", "fork_created"}:
+            dedupe_type = "fork"
+        key = (rid, dedupe_type, uid, day)
         if key in seen:
             continue
         seen.add(key)
@@ -418,14 +438,14 @@ def feed(
                 "score": 0.0,
             },
         )
-        if ev.type == "clip_view":
+        if dedupe_type == "fork":
+            row["forks"] += 1.0
+        elif ev.type == "clip_view":
             row["views"] += 1.0
         elif ev.type == "clip_completion":
             row["completions"] += 1.0
         elif ev.type == "clip_share":
             row["shares"] += 1.0
-        elif ev.type == "clip_fork_click":
-            row["forks"] += 1.0
         elif ev.type == "clip_open_ranked":
             row["open_ranked"] += 1.0
         row["score"] += w * d

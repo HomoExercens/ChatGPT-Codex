@@ -12,6 +12,11 @@ export type BlueprintOut = {
   spec_hash: string;
   meta: Record<string, unknown>;
   forked_from_id?: string | null;
+  parent_blueprint_id?: string | null;
+  fork_root_blueprint_id?: string | null;
+  fork_depth?: number;
+  fork_count?: number;
+  source_replay_id?: string | null;
   build_code?: string | null;
   submitted_at?: string | null;
   updated_at: string;
@@ -60,6 +65,10 @@ export type BlueprintLineage = {
     forked_from_id?: string | null;
     build_code?: string | null;
     children_count?: number;
+    fork_root_blueprint_id?: string | null;
+    fork_depth?: number;
+    fork_count?: number;
+    source_replay_id?: string | null;
     origin_code_hash?: string | null;
   }>;
   children?: Array<{
@@ -72,8 +81,17 @@ export type BlueprintLineage = {
     forked_from_id?: string | null;
     build_code?: string | null;
     children_count?: number;
+    fork_root_blueprint_id?: string | null;
+    fork_depth?: number;
+    fork_count?: number;
+    source_replay_id?: string | null;
     origin_code_hash?: string | null;
   }>;
+  root?: BlueprintLineage['chain'][number] | null;
+  ancestors?: Array<BlueprintLineage['chain'][number]>;
+  self?: BlueprintLineage['chain'][number] | null;
+  fork_depth?: number | null;
+  fork_count?: number | null;
 };
 
 export type BuildCodeWarning = {

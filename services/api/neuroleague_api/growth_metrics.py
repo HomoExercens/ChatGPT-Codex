@@ -53,6 +53,14 @@ FUNNEL_STEPS_CLIPS_V1: list[str] = [
     "ranked_done",
 ]
 
+FUNNEL_REMIX_V1: str = "remix_v1"
+FUNNEL_STEPS_REMIX_V1: list[str] = [
+    "share_open",
+    "fork_click",
+    "fork_created",
+    "first_match_done",
+]
+
 FUNNEL_DEMO_V1: str = "demo_v1"
 FUNNEL_STEPS_DEMO_V1: list[str] = [
     "demo_run_start",
@@ -65,6 +73,7 @@ FUNNEL_DEFS: dict[str, list[str]] = {
     FUNNEL_GROWTH_V1: FUNNEL_STEPS_GROWTH_V1,
     FUNNEL_SHARE_V1: FUNNEL_STEPS_SHARE_V1,
     FUNNEL_CLIPS_V1: FUNNEL_STEPS_CLIPS_V1,
+    FUNNEL_REMIX_V1: FUNNEL_STEPS_REMIX_V1,
     FUNNEL_DEMO_V1: FUNNEL_STEPS_DEMO_V1,
 }
 
@@ -185,7 +194,9 @@ def rollup_growth_metrics(
         ).all()
 
         unique_by_type: dict[str, set[str]] = defaultdict(set)
+        count_by_type: dict[str, int] = defaultdict(int)
         for ev in events:
+            count_by_type[str(ev.type)] += 1
             payload = _safe_payload(ev)
             key = _subject_key(ev, payload)
             if not key:
@@ -305,6 +316,8 @@ def rollup_growth_metrics(
             float(len(unique_by_type.get("first_replay_open", set()))),
         )
         add_metric("clip_share_users", float(len(unique_by_type.get("clip_share", set()))))
+        add_metric("fork_click_events", float(count_by_type.get("fork_click", 0)))
+        add_metric("fork_created_events", float(count_by_type.get("fork_created", 0)))
         add_metric(
             "wishlist_click_users",
             float(len(unique_by_type.get("wishlist_click", set()))),

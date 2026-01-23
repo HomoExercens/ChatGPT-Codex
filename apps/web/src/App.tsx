@@ -26,6 +26,7 @@ import { ProfilePage } from './pages/ProfilePage';
 import { QuickPage } from './pages/QuickPage';
 import { ReplayPage } from './pages/ReplayPage';
 import { ReplayHubPage } from './pages/ReplayHubPage';
+import { RemixPage } from './pages/RemixPage';
 import { RankedPage } from './pages/RankedPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SocialPage } from './pages/SocialPage';
@@ -61,6 +62,7 @@ function App() {
         }
       />
       <Route path="/start" element={<StartPage />} />
+      <Route path="/remix" element={<RemixPage />} />
 
       <Route
         element={
@@ -73,6 +75,7 @@ function App() {
         <Route path="/demo" element={<DemoPage />} />
         <Route path="/training" element={<TrainingPage />} />
         <Route path="/forge" element={<ForgePage />} />
+        <Route path="/forge/:bpId" element={<ForgePage />} />
         <Route path="/gallery" element={<GalleryPage />} />
         <Route path="/quick" element={<QuickPage />} />
         <Route path="/clips" element={<ClipsPage />} />
