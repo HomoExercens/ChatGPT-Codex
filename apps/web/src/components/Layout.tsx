@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   BarChart3,
@@ -14,12 +14,13 @@ import {
   Star,
   Trophy,
 } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { TRANSLATIONS } from '../lib/translations';
 import { useSettingsStore } from '../stores/settings';
 import { apiFetch } from '../lib/api';
 import type { HomeSummary } from '../types';
+import type { MarkNotificationReadResponse, NotificationsResponse } from '../api/types';
 
 type NavItem = {
   to: string;
@@ -29,15 +30,23 @@ type NavItem = {
 
 export const Layout: React.FC = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const lang = useSettingsStore((s) => s.language);
   const setLanguage = useSettingsStore((s) => s.setLanguage);
   const t = TRANSLATIONS[lang].nav;
   const tc = TRANSLATIONS[lang].common;
+  const [notifOpen, setNotifOpen] = useState(false);
 
   const { data: home } = useQuery({
     queryKey: ['homeSummary'],
     queryFn: () => apiFetch<HomeSummary>('/api/home/summary'),
     staleTime: 15_000,
+  });
+
+  const { data: notifications } = useQuery({
+    queryKey: ['notifications', 'inbox'],
+    queryFn: () => apiFetch<NotificationsResponse>('/api/notifications?limit=10'),
+    staleTime: 10_000,
   });
 
   const navItems: NavItem[] = [
@@ -60,6 +69,7 @@ export const Layout: React.FC = () => {
   ].filter(Boolean);
 
   const toggleLanguage = () => setLanguage(lang === 'ko' ? 'en' : 'ko');
+  const unreadCount = notifications?.unread_count ?? 0;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
@@ -129,10 +139,103 @@ export const Layout: React.FC = () => {
             </div>
           </div>
 
-          <button className="text-slate-500 hover:text-brand-600 transition-colors relative" type="button">
-            <Bell size={20} />
-            <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
-          </button>
+          <div className="relative">
+            <button
+              className="text-slate-500 hover:text-brand-600 transition-colors relative"
+              type="button"
+              onClick={async () => {
+                const nextOpen = !notifOpen;
+                setNotifOpen(nextOpen);
+                if (nextOpen) {
+                  try {
+                    await apiFetch('/api/events/track', {
+                      method: 'POST',
+                      body: JSON.stringify({ type: 'notification_opened', source: 'nav_bell', meta: {} }),
+                    });
+                  } catch {
+                    // ignore
+                  }
+                }
+              }}
+              aria-label="Notifications"
+            >
+              <Bell size={20} />
+              {unreadCount > 0 ? (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full border-2 border-white flex items-center justify-center">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              ) : null}
+            </button>
+
+            {notifOpen ? (
+              <div className="absolute right-0 mt-2 w-[320px] bg-white border border-slate-200 rounded-2xl shadow-lg overflow-hidden z-50">
+                <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                  <div className="text-sm font-bold text-slate-800">Notifications</div>
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-slate-500 hover:text-slate-800"
+                    onClick={() => setNotifOpen(false)}
+                  >
+                    Close
+                  </button>
+                </div>
+                <div className="max-h-[340px] overflow-auto">
+                  {notifications?.items?.length ? (
+                    <div className="divide-y divide-slate-100">
+                      {notifications.items.map((n) => {
+                        const isUnread = !n.read_at;
+                        return (
+                          <button
+                            key={n.id}
+                            type="button"
+                            className={`w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors ${
+                              isUnread ? 'bg-brand-50/40' : 'bg-white'
+                            }`}
+                            onClick={async () => {
+                              setNotifOpen(false);
+                              try {
+                                await apiFetch<MarkNotificationReadResponse>(`/api/notifications/${encodeURIComponent(n.id)}/read`, {
+                                  method: 'POST',
+                                });
+                              } catch {
+                                // ignore
+                              } finally {
+                                queryClient.invalidateQueries({ queryKey: ['notifications', 'inbox'] });
+                              }
+                              if (!n.href) return;
+                              if (n.href.startsWith('/s/')) {
+                                window.location.href = n.href;
+                                return;
+                              }
+                              if (n.href.startsWith('/')) {
+                                navigate(n.href);
+                                return;
+                              }
+                              try {
+                                window.open(n.href, '_blank', 'noreferrer');
+                              } catch {
+                                // ignore
+                              }
+                            }}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-sm font-semibold text-slate-800 truncate">
+                                {n.title ?? 'Notification'}
+                              </div>
+                              {isUnread ? <span className="w-2 h-2 rounded-full bg-brand-600" /> : null}
+                            </div>
+                            {n.body ? <div className="text-xs text-slate-600 mt-1 line-clamp-2">{n.body}</div> : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="px-4 py-6 text-sm text-slate-500">No notifications yet.</div>
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
           <button className="text-slate-500 hover:text-brand-600 transition-colors" type="button">
             <HelpCircle size={20} />
           </button>

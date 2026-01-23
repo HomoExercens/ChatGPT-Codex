@@ -54,6 +54,23 @@ DEFAULT_EXPERIMENTS: dict[str, dict[str, Any]] = {
             {"id": "variant_b", "weight": 0.33, "config": {"label": "Remix (이 빌드 개조하기)"}},
         ],
     },
+    # Replies ranking algorithm (reply-chain).
+    "replies_rank_algo_v1": {
+        "status": "running",
+        "variants": [
+            {"id": "control", "weight": 0.5, "config": {}},
+            {"id": "variant_a", "weight": 0.5, "config": {}},
+        ],
+    },
+    # Quick Remix CTA on /s/clip (anonymous traffic).
+    "quick_remix_cta_v1": {
+        "status": "running",
+        "variants": [
+            {"id": "control", "weight": 0.34, "config": {}},
+            {"id": "variant_a", "weight": 0.33, "config": {}},
+            {"id": "variant_b", "weight": 0.33, "config": {}},
+        ],
+    },
     "share_cta_copy": {
         "status": "running",
         "variants": [

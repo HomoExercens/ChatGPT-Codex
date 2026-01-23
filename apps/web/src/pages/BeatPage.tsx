@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import { Button, Card, CardContent, CardHeader, CardTitle } from '../components/ui';
 import type { MatchDetail } from '../api/types';
+import type { QuickRemixResponse } from '../api/types';
 import { apiFetch } from '../lib/api';
 import { useAuthStore } from '../stores/auth';
 
@@ -34,10 +35,16 @@ export const BeatPage: React.FC = () => {
   const location = useLocation();
   const [error, setError] = useState<string | null>(null);
   const [matchId, setMatchId] = useState<string | null>(null);
+  const [phase, setPhase] = useState<string>('starting');
 
   const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const replayId = useMemo(() => (params.get('replay_id') || params.get('id') || '').trim(), [params]);
   const blueprintId = useMemo(() => (params.get('blueprint_id') || params.get('bp') || '').trim() || null, [params]);
+  const quickRemixPreset = useMemo(() => {
+    const raw = (params.get('qr') || params.get('preset') || '').trim();
+    if (raw === 'survivability' || raw === 'damage' || raw === 'counter') return raw;
+    return null;
+  }, [params]);
   const src = useMemo(
     () => (params.get('src') || params.get('source') || 'share_landing').trim().slice(0, 64),
     [params]
@@ -63,9 +70,28 @@ export const BeatPage: React.FC = () => {
     let cancelled = false;
     const run = async () => {
       try {
+        let bpToUse: string | null = blueprintId;
+        if (quickRemixPreset) {
+          setPhase('quick_remix');
+          const qr = await apiFetch<QuickRemixResponse>(
+            `/api/challenges/clip/${encodeURIComponent(replayId)}/quick_remix`,
+            {
+              method: 'POST',
+              body: JSON.stringify({ preset_id: quickRemixPreset, source: src }),
+            }
+          );
+          if (cancelled) return;
+          bpToUse = qr.blueprint_id;
+        }
+
+        setPhase('beat');
         const beat = await apiFetch<BeatClipResponse>(`/api/challenges/clip/${encodeURIComponent(replayId)}/beat`, {
           method: 'POST',
-          body: JSON.stringify({ blueprint_id: blueprintId, seed_set_count: 1, source: src }),
+          body: JSON.stringify({
+            blueprint_id: bpToUse,
+            seed_set_count: 1,
+            source: quickRemixPreset ? `quick_remix:${quickRemixPreset}` : src,
+          }),
         });
         if (cancelled) return;
         setMatchId(beat.match_id);
@@ -95,7 +121,7 @@ export const BeatPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [blueprintId, location.pathname, location.search, navigate, ref, replayId, src, token]);
+  }, [blueprintId, location.pathname, location.search, navigate, quickRemixPreset, ref, replayId, src, token]);
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-slate-50">
@@ -104,7 +130,11 @@ export const BeatPage: React.FC = () => {
           <CardTitle>Starting challenge…</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="text-sm text-slate-600">Queuing a “Beat This” match and preparing your reply clip.</div>
+          <div className="text-sm text-slate-600">
+            {phase === 'quick_remix'
+              ? `Applying Quick Remix (${quickRemixPreset})…`
+              : 'Queuing a “Beat This” match and preparing your reply clip.'}
+          </div>
           {error ? (
             <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
               <div className="font-mono break-all">{error}</div>
@@ -124,4 +154,3 @@ export const BeatPage: React.FC = () => {
     </div>
   );
 };
-

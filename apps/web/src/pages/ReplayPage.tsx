@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Bookmark,
   Eye,
@@ -20,7 +20,7 @@ import {
 
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '../components/ui';
 import { BattleViewport } from '../components/replay/BattleViewport';
-import type { BlueprintOut, MatchDetail, ModifiersMeta, QueueResponse, Replay } from '../api/types';
+import type { BlueprintOut, MatchDetail, ModifiersMeta, QueueResponse, ReactionCounts, ReactResponse, Replay } from '../api/types';
 import { apiFetch, apiFetchBlob } from '../lib/api';
 import { readShareVariants } from '../lib/shareVariants';
 import { TRANSLATIONS } from '../lib/translations';
@@ -44,6 +44,7 @@ export const ReplayPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const lang = useSettingsStore((s) => s.language);
   const reduceMotion = useSettingsStore((s) => s.reduceMotion);
   const t = useMemo(() => TRANSLATIONS[lang].common, [lang]);
@@ -585,6 +586,27 @@ export const ReplayPage: React.FC = () => {
 
   const isReplyClip = Boolean(match?.queue_type === 'challenge' && replyToReplayId);
 
+  const { data: reactionCounts } = useQuery({
+    queryKey: ['reactions', match?.replay_id],
+    queryFn: () => apiFetch<ReactionCounts>(`/api/clips/${encodeURIComponent(match!.replay_id)}/reactions`),
+    enabled: Boolean(match?.replay_id && isReplyClip),
+    staleTime: 10_000,
+  });
+
+  const reactMutation = useMutation({
+    mutationFn: async (reactionType: 'up' | 'lol' | 'wow') => {
+      if (!match?.replay_id) throw new Error('Replay not ready');
+      return await apiFetch<ReactResponse>(`/api/clips/${encodeURIComponent(match.replay_id)}/react`, {
+        method: 'POST',
+        body: JSON.stringify({ reaction_type: reactionType, source: 'reply_replay' }),
+      });
+    },
+    onSuccess: (data) => {
+      if (!match?.replay_id) return;
+      queryClient.setQueryData(['reactions', match.replay_id], data.counts);
+    },
+  });
+
   const beatThisMutation = useMutation({
     mutationFn: async () => {
       if (!match?.replay_id) throw new Error('Replay not ready');
@@ -972,6 +994,37 @@ export const ReplayPage: React.FC = () => {
                     View Original
                   </a>
                 ) : null}
+                {isReplyClip && match?.replay_id ? (
+                  <>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => reactMutation.mutate('up')}
+                      disabled={!match?.replay_id || reactMutation.isPending}
+                      isLoading={reactMutation.isPending}
+                    >
+                      👍 {(reactionCounts?.up ?? 0).toLocaleString()}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => reactMutation.mutate('lol')}
+                      disabled={!match?.replay_id || reactMutation.isPending}
+                      isLoading={reactMutation.isPending}
+                    >
+                      😂 {(reactionCounts?.lol ?? 0).toLocaleString()}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => reactMutation.mutate('wow')}
+                      disabled={!match?.replay_id || reactMutation.isPending}
+                      isLoading={reactMutation.isPending}
+                    >
+                      🤯 {(reactionCounts?.wow ?? 0).toLocaleString()}
+                    </Button>
+                  </>
+                ) : null}
                 {bestMp4Url && bestClip ? (
                   <a
                     href={`/s/clip/${encodeURIComponent(bestClip.replay_id)}/kit.zip?start=${bestClip.start_sec.toFixed(1)}&end=${bestClip.end_sec.toFixed(1)}&ref=in_app`}
@@ -994,6 +1047,9 @@ export const ReplayPage: React.FC = () => {
 
               {bestClipMutation.error ? (
                 <div className="text-xs text-red-600 break-words">{String(bestClipMutation.error)}</div>
+              ) : null}
+              {reactMutation.error ? (
+                <div className="text-xs text-red-600 break-words">{String(reactMutation.error)}</div>
               ) : null}
             </div>
 

@@ -175,6 +175,78 @@ export type ClipFeedOut = {
   next_cursor: string | null;
 };
 
+export type ReactionCounts = {
+  up: number;
+  lol: number;
+  wow: number;
+  total: number;
+};
+
+export type ReactResponse = {
+  ok: boolean;
+  replay_id: string;
+  reaction_type: string;
+  counts: ReactionCounts;
+};
+
+export type ReplyLineage = {
+  fork_depth: number;
+  forked_from_id?: string | null;
+  forked_from_name?: string | null;
+  fork_root_id?: string | null;
+  fork_root_name?: string | null;
+};
+
+export type ReplyClip = {
+  reply_replay_id: string;
+  match_id: string;
+  outcome: 'win' | 'loss' | 'draw';
+  created_at?: string | null;
+  finished_at?: string | null;
+  challenger_user_id: string;
+  challenger_display_name?: string | null;
+  blueprint_id?: string | null;
+  blueprint_name?: string | null;
+  likes: number;
+  completions: number;
+  shares: number;
+  reactions: ReactionCounts;
+  lineage: ReplyLineage;
+};
+
+export type RepliesResponse = {
+  sort: 'top' | 'recent';
+  algo_variant: string;
+  items: ReplyClip[];
+};
+
+export type NotificationsResponse = {
+  items: Array<{
+    id: string;
+    type: string;
+    title?: string | null;
+    body?: string | null;
+    href?: string | null;
+    meta: Record<string, unknown>;
+    created_at: string;
+    read_at?: string | null;
+  }>;
+  next_cursor: string | null;
+  unread_count: number;
+};
+
+export type MarkNotificationReadResponse = {
+  ok: boolean;
+  id: string;
+  unread_count: number;
+};
+
+export type QuickRemixResponse = {
+  blueprint_id: string;
+  parent_blueprint_id: string;
+  build_code?: string | null;
+};
+
 export type FeaturedKind = 'clip' | 'build' | 'user' | 'challenge';
 
 export type FeaturedItem = {

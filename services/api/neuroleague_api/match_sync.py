@@ -10,7 +10,15 @@ from sqlalchemy.orm import Session
 
 from neuroleague_api.elo import update_elo
 from neuroleague_api.eventlog import log_event
-from neuroleague_api.models import Challenge, ChallengeAttempt, Match, Rating, Replay
+from neuroleague_api.models import (
+    Challenge,
+    ChallengeAttempt,
+    Match,
+    Notification,
+    Rating,
+    Replay,
+    User,
+)
 from neuroleague_api.storage import save_replay_json
 from neuroleague_sim.models import BlueprintSpec
 from neuroleague_sim.modifiers import select_match_modifiers
@@ -268,6 +276,65 @@ def run_match_sync(
                         },
                         now=now,
                     )
+                    # In-app notification (best-effort; guests do not receive).
+                    try:
+                        parent_replay = db.get(Replay, parent_replay_id)
+                        parent_match = (
+                            db.get(Match, parent_replay.match_id) if parent_replay else None
+                        )
+                        recipient = (
+                            str(getattr(parent_match, "user_a_id", "") or "")
+                            if parent_match
+                            else ""
+                        )
+                        if recipient and not recipient.startswith("guest_"):
+                            dedupe_key = f"reply:{str(replay_id)}"
+                            exists = db.scalar(
+                                select(Notification)
+                                .where(Notification.user_id == recipient)
+                                .where(Notification.dedupe_key == dedupe_key)
+                                .limit(1)
+                            )
+                            if not exists:
+                                challenger = db.get(User, str(user_a_id))
+                                challenger_name = (
+                                    str(challenger.display_name)
+                                    if challenger and challenger.display_name
+                                    else "Someone"
+                                )
+                                outcome = str(match.result or "")
+                                title = (
+                                    "Someone beat your clip"
+                                    if outcome == "A"
+                                    else "New reply clip"
+                                )
+                                body = (
+                                    f"{challenger_name} replied ({'WIN' if outcome == 'A' else 'LOSS' if outcome == 'B' else 'DRAW'})"
+                                )
+                                db.add(
+                                    Notification(
+                                        id=f"nt_{uuid4().hex}",
+                                        user_id=recipient,
+                                        type="reply_clip_created",
+                                        title=title[:120],
+                                        body=body[:200],
+                                        href=f"/replay/{match.id}?reply_to={parent_replay_id}",
+                                        dedupe_key=dedupe_key,
+                                        meta_json=orjson.dumps(
+                                            {
+                                                "parent_replay_id": parent_replay_id,
+                                                "reply_replay_id": str(replay_id),
+                                                "match_id": str(match.id),
+                                                "challenger_user_id": str(user_a_id),
+                                                "outcome": outcome,
+                                            }
+                                        ).decode("utf-8"),
+                                        created_at=now,
+                                        read_at=None,
+                                    )
+                                )
+                    except Exception:  # noqa: BLE001
+                        pass
             except Exception:  # noqa: BLE001
                 pass
     except Exception:  # noqa: BLE001

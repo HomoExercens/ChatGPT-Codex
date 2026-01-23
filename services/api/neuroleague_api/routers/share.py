@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import hashlib
 import html
+import math
 import shutil
 from io import BytesIO
 from typing import Any, Literal
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 import zipfile
 from uuid import uuid4
 
@@ -29,8 +30,10 @@ from neuroleague_api.models import (
     Challenge,
     ChallengeAttempt,
     ClipLike,
+    Event,
     Match,
     Rating,
+    ReplayReaction,
     Replay,
     User,
 )
@@ -889,6 +892,7 @@ def clip_landing(
     ctpl: str | None = None,
     v: int = 0,
     ref: str | None = None,
+    rtab: str | None = None,
 ) -> HTMLResponse:
     base = _abs_base(request)
     has_range = ("start" in request.query_params) or ("end" in request.query_params)
@@ -897,7 +901,10 @@ def clip_landing(
     cta_order_variant: str = "beat_then_remix"
     remix_cta_variant: str = "control"
     remix_cta_label: str = "Fork & Remix"
+    quick_remix_cta_variant: str = "control"
+    replies_rank_variant: str = "control"
     replies: list[dict[str, Any]] = []
+    replies_total: int = 0
 
     with SessionLocal() as db:  # independent session; share pages are public
         replay = db.get(Replay, replay_id)
@@ -969,11 +976,13 @@ def clip_landing(
             )
             rows = db.execute(
                 select(
+                    Match.id.label("match_id"),
                     ChallengeAttempt.challenger_user_id,
                     Match.result,
                     Match.finished_at,
                     Match.created_at,
                     Match.blueprint_a_id,
+                    Match.blueprint_b_id,
                     Replay.id.label("reply_replay_id"),
                     func.coalesce(likes_subq.c.likes, 0).label("likes"),
                 )
@@ -990,10 +999,10 @@ def clip_landing(
                     desc(func.coalesce(likes_subq.c.likes, 0)),
                     desc(Match.created_at),
                 )
-                .limit(12)
+                .limit(60)
             ).all()
 
-            user_ids = sorted({str(uid) for uid, *_rest in rows if uid})
+            user_ids = sorted({str(uid) for _mid, uid, *_rest in rows if uid})
             users = (
                 db.scalars(select(User).where(User.id.in_(user_ids))).all()
                 if user_ids
@@ -1001,7 +1010,13 @@ def clip_landing(
             )
             user_by_id = {u.id: u for u in users}
 
-            bp_ids = sorted({str(bp) for _uid, _res, _fin, _cr, bp, _rr, _lk in rows if bp})
+            bp_ids = sorted(
+                {
+                    str(bp)
+                    for _mid, _uid, _res, _fin, _cr, bp, _bb, _rr, _lk in rows
+                    if bp
+                }
+            )
             bps = (
                 db.scalars(select(Blueprint).where(Blueprint.id.in_(bp_ids))).all()
                 if bp_ids
@@ -1022,8 +1037,75 @@ def clip_landing(
                 for b in extras:
                     bp_by_id[b.id] = b
 
+            reply_ids = [str(rr or "") for _mid, _uid, _res, _fin, _cr, _bp, _bb, rr, _lk in rows if rr]
+            rx_by_replay: dict[str, dict[str, int]] = {}
+            try:
+                rx_rows = (
+                    db.execute(
+                        select(
+                            ReplayReaction.replay_id,
+                            ReplayReaction.reaction_type,
+                            func.count(ReplayReaction.id),
+                        )
+                        .where(ReplayReaction.replay_id.in_(reply_ids))
+                        .group_by(ReplayReaction.replay_id, ReplayReaction.reaction_type)
+                    ).all()
+                    if reply_ids
+                    else []
+                )
+                for rid, rtype, cnt in rx_rows:
+                    rkey = str(rid or "")
+                    tkey = str(rtype or "")
+                    if not rkey or not tkey:
+                        continue
+                    rx_by_replay.setdefault(rkey, {})[tkey] = int(cnt or 0)
+            except Exception:  # noqa: BLE001
+                rx_by_replay = {}
+
+            # Engagement stats (last 14d) for ranking/display.
+            completions: dict[str, int] = {}
+            shares: dict[str, int] = {}
+            try:
+                since = datetime.now(UTC) - timedelta(days=14)
+                events = db.scalars(
+                    select(Event)
+                    .where(Event.created_at >= since)
+                    .where(
+                        Event.type.in_(
+                            [
+                                "clip_completion",
+                                "clip_share",
+                                "reply_clip_shared",
+                            ]
+                        )
+                    )
+                    .order_by(Event.created_at.asc())
+                ).all()
+                for ev in events:
+                    try:
+                        payload = orjson.loads(ev.payload_json or "{}")
+                    except Exception:  # noqa: BLE001
+                        continue
+                    if not isinstance(payload, dict):
+                        continue
+                    if str(ev.type) == "reply_clip_shared":
+                        rid = str(payload.get("reply_replay_id") or "")
+                        if rid and rid in reply_ids:
+                            shares[rid] = int(shares.get(rid, 0) + 1)
+                        continue
+                    rid = str(payload.get("replay_id") or "")
+                    if not rid or rid not in reply_ids:
+                        continue
+                    if str(ev.type) == "clip_completion":
+                        completions[rid] = int(completions.get(rid, 0) + 1)
+                    elif str(ev.type) == "clip_share":
+                        shares[rid] = int(shares.get(rid, 0) + 1)
+            except Exception:  # noqa: BLE001
+                completions = {}
+                shares = {}
+
             out: list[dict[str, Any]] = []
-            for uid, res, finished_at, created_at, bp_a_id, reply_rid, likes in rows:
+            for mid, uid, res, finished_at, created_at, bp_a_id, bp_b_id, reply_rid, likes in rows:
                 reply_id = str(reply_rid or "")
                 if not reply_id:
                     continue
@@ -1037,15 +1119,24 @@ def clip_landing(
                     if (bp and bp.fork_root_blueprint_id)
                     else None
                 )
+                rx = rx_by_replay.get(reply_id, {})
                 out.append(
                     {
                         "reply_replay_id": reply_id,
+                        "match_id": str(mid or ""),
                         "challenger_user_id": str(uid or ""),
                         "challenger_display_name": (u.display_name if u else None),
                         "outcome": outcome,
                         "finished_at": finished_at,
                         "created_at": created_at,
                         "likes": int(likes or 0),
+                        "completions": int(completions.get(reply_id, 0)),
+                        "shares": int(shares.get(reply_id, 0)),
+                        "reactions": {
+                            "up": int(rx.get("up", 0)),
+                            "lol": int(rx.get("lol", 0)),
+                            "wow": int(rx.get("wow", 0)),
+                        },
                         "blueprint_id": str(bp.id) if bp else None,
                         "blueprint_name": (bp.name if bp else None),
                         "fork_depth": int(getattr(bp, "fork_depth", 0) or 0) if bp else 0,
@@ -1055,11 +1146,15 @@ def clip_landing(
                         if (bp and bp.fork_root_blueprint_id)
                         else None,
                         "fork_root_name": (root_bp.name if root_bp else None),
+                        "attacker_bp": str(bp_a_id or "") or None,
+                        "defender_bp": str(bp_b_id or "") or None,
                     }
                 )
             replies = out
+            replies_total = len(out)
         except Exception:  # noqa: BLE001
             replies = []
+            replies_total = 0
 
         anon_id: str | None = None
         try:
@@ -1096,6 +1191,121 @@ def clip_landing(
             except Exception:  # noqa: BLE001
                 remix_cta_variant = "control"
                 remix_cta_label = "Fork & Remix"
+            try:
+                qr_variant, _qr_cfg, _is_new = assign_experiment(
+                    db,
+                    subject_type="anon",
+                    subject_id=anon_id,
+                    experiment_key="quick_remix_cta_v1",
+                )
+                quick_remix_cta_variant = str(qr_variant or "control")
+            except Exception:  # noqa: BLE001
+                quick_remix_cta_variant = "control"
+            try:
+                rr_variant, _rr_cfg, _is_new = assign_experiment(
+                    db,
+                    subject_type="anon",
+                    subject_id=anon_id,
+                    experiment_key="replies_rank_algo_v1",
+                )
+                replies_rank_variant = str(rr_variant or "control")
+            except Exception:  # noqa: BLE001
+                replies_rank_variant = "control"
+
+        # Replies ranking/tab selection (server-rendered).
+        def _aware(dt: datetime | None) -> datetime | None:
+            if dt is None:
+                return None
+            if getattr(dt, "tzinfo", None) is None:
+                return dt.replace(tzinfo=UTC)
+            return dt
+
+        def _time_decay(now: datetime, dt: datetime | None) -> float:
+            ts = _aware(dt) or now
+            age_h = max(0.0, (now - ts).total_seconds() / 3600.0)
+            try:
+                return math.exp(-age_h / 48.0)
+            except Exception:  # noqa: BLE001
+                return 0.0
+
+        replies_all = list(replies or [])
+        if not replies_total:
+            replies_total = len(replies_all)
+
+        tab = str(rtab or "").strip().lower()
+        replies_tab = "recent" if tab == "recent" else "top"
+
+        replies_recent = sorted(
+            replies_all,
+            key=lambda r: (
+                -float(
+                    (
+                        _aware(r.get("finished_at"))
+                        or _aware(r.get("created_at"))
+                        or datetime.fromtimestamp(0, tz=UTC)
+                    ).timestamp()
+                ),
+                str(r.get("reply_replay_id") or ""),
+            ),
+        )
+
+        replies_top = replies_all
+        if replies_rank_variant == "variant_a":
+            now_dt = datetime.now(UTC)
+            scored: list[tuple[float, dict[str, Any]]] = []
+            for r in replies_all:
+                outcome = str(r.get("outcome") or "")
+                win_rank = 2 if outcome == "win" else 1 if outcome == "draw" else 0
+                ts = _aware(r.get("finished_at")) or _aware(r.get("created_at"))
+                decay = _time_decay(now_dt, ts)
+                rx = r.get("reactions") if isinstance(r.get("reactions"), dict) else {}
+                engagement = (
+                    3.0
+                    * float((rx.get("up") or 0) + (rx.get("lol") or 0) + (rx.get("wow") or 0))
+                    + 2.0 * float(r.get("shares") or 0)
+                    + 1.0 * float(r.get("completions") or 0)
+                    + 0.2 * float(r.get("likes") or 0)
+                )
+                score_base = (decay * 10_000.0) + (decay * 100.0 * engagement)
+                r["_win_rank"] = win_rank
+                r["_base_score"] = score_base
+                scored.append((float(win_rank) * 1_000_000.0 + float(score_base), r))
+
+            scored.sort(key=lambda pair: (-pair[0], str(pair[1].get("reply_replay_id") or "")))
+            seen_combo: dict[str, int] = {}
+            reranked: list[tuple[float, dict[str, Any]]] = []
+            for _score, r in scored:
+                a = str(r.get("attacker_bp") or "")
+                b = str(r.get("defender_bp") or "")
+                combo = f"{a}:{b}" if (a or b) else ""
+                idx = int(seen_combo.get(combo, 0))
+                seen_combo[combo] = idx + 1
+                multiplier = 1.0 if idx <= 0 else (0.5**idx)
+                final = float(r.get("_win_rank") or 0) * 1_000_000.0 + float(
+                    r.get("_base_score") or 0.0
+                ) * multiplier
+                reranked.append((final, r))
+
+            reranked.sort(key=lambda pair: (-pair[0], str(pair[1].get("reply_replay_id") or "")))
+            replies_top = [r for _s, r in reranked]
+
+        replies = (replies_recent if replies_tab == "recent" else replies_top)[:12]
+
+        # Replies tab links (preserve current query params).
+        try:
+            qp = dict(request.query_params)
+        except Exception:  # noqa: BLE001
+            qp = {}
+        qp_top = dict(qp)
+        qp_top["rtab"] = "top"
+        qp_recent = dict(qp)
+        qp_recent["rtab"] = "recent"
+        replies_tab_top_url = f"/s/clip/{replay_id}?{urlencode(qp_top)}" if qp_top else f"/s/clip/{replay_id}"
+        replies_tab_recent_url = (
+            f"/s/clip/{replay_id}?{urlencode(qp_recent)}"
+            if qp_recent
+            else f"/s/clip/{replay_id}"
+        )
 
         try:
             log_event(
@@ -1117,6 +1327,8 @@ def clip_landing(
                         "captions_v2": forced_template_id,
                         "share_landing_clip_order": cta_order_variant,
                         "remix_cta_v1": remix_cta_variant,
+                        "quick_remix_cta_v1": quick_remix_cta_variant,
+                        "replies_rank_algo_v1": replies_rank_variant,
                     },
                     "captions_version": forced_captions_version,
                     "captions_template_id": forced_template_id,
@@ -1139,6 +1351,8 @@ def clip_landing(
                         "captions_v2": forced_template_id,
                         "share_landing_clip_order": cta_order_variant,
                         "remix_cta_v1": remix_cta_variant,
+                        "quick_remix_cta_v1": quick_remix_cta_variant,
+                        "replies_rank_algo_v1": replies_rank_variant,
                     },
                     "captions_version": forced_captions_version,
                     "captions_template_id": forced_template_id,
@@ -1279,6 +1493,21 @@ def clip_landing(
         ctpl=forced_template_id,
     )
 
+    quick_remix_urls: dict[str, str] = {}
+    for preset_id in ("survivability", "damage", "counter"):
+        quick_remix_urls[preset_id] = _start_href(
+            next_path=(
+                f"/beat?replay_id={quote(replay_id, safe='')}"
+                f"&src=share_landing"
+                f"&qr={quote(preset_id, safe='')}"
+            ),
+            ref=ref,
+            src="s/clip_quick_remix",
+            lenv=clip_len_variant,
+            cv=forced_captions_version,
+            ctpl=forced_template_id,
+        )
+
     title = f"NeuroLeague Clip — {match_id}"
     if top_title:
         title = f"NeuroLeague Clip — {top_title}"
@@ -1369,11 +1598,21 @@ def clip_landing(
         if remix_url
         else ""
     )
+    # Quick Remix presets should always be visible; the experiment controls copy/placement.
+    quick_remix_ctas_html = (
+        f'<a class="cta secondary" href="{html.escape(quick_remix_urls.get("survivability") or beat_url)}">Quick Remix: Tankier</a>'
+        f'<a class="cta secondary" href="{html.escape(quick_remix_urls.get("damage") or beat_url)}">Quick Remix: Melt Faster</a>'
+        f'<a class="cta secondary" href="{html.escape(quick_remix_urls.get("counter") or beat_url)}">Quick Remix: Counter</a>'
+    )
     secondary_ctas_html = (
         f"{remix_cta}{beat_cta}"
         if remix_url and cta_order_variant == "remix_then_beat"
         else f"{beat_cta}{remix_cta}"
     )
+    if quick_remix_cta_variant == "variant_b":
+        secondary_ctas_html = f"{quick_remix_ctas_html}{secondary_ctas_html}"
+    else:
+        secondary_ctas_html = f"{secondary_ctas_html}{quick_remix_ctas_html}"
 
     download_kit_html = ""
     download_mp4_html = ""
@@ -1535,6 +1774,18 @@ def clip_landing(
       .kitlabel {{ font-size: 12px; color: var(--muted); margin: 0 0 8px; }}
       .replies {{ margin-top: 18px; }}
       .replies h2 {{ margin: 0; font-size: 15px; letter-spacing: .02em; }}
+      .replies-head {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; }}
+      .reply-tabs {{ display: flex; gap: 6px; }}
+      .reply-tab {{
+        font-size: 11px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        text-decoration: none;
+        color: var(--muted);
+        background: rgba(2,6,23,.18);
+      }}
+      .reply-tab.active {{ color: var(--text); border-color: rgba(255,255,255,.22); background: rgba(255,255,255,.10); }}
       .replies-grid {{
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
@@ -1614,8 +1865,14 @@ def clip_landing(
           <div id="copy-status" class="meta"></div>
           <div class="tiny">share: <code>{html.escape(og_url)}</code></div>
           <div class="card replies">
-            <h2>Replies</h2>
-            <div class="tiny">{len(replies)} reply clip(s) · win &gt; recent &gt; reactions</div>
+            <div class="replies-head">
+              <h2>Replies</h2>
+              <div class="reply-tabs">
+                <a class="reply-tab {('active' if replies_tab == 'top' else '')}" href="{html.escape(replies_tab_top_url)}">Top Replies</a>
+                <a class="reply-tab {('active' if replies_tab == 'recent' else '')}" href="{html.escape(replies_tab_recent_url)}">Recent</a>
+              </div>
+            </div>
+            <div class="tiny">{int(replies_total or 0)} reply clip(s) · win &gt; time decay &gt; completion/share/reactions</div>
             <div class="replies-grid">
               {(
                 ''.join(
@@ -1639,6 +1896,14 @@ def clip_landing(
                       if int(r.get("fork_depth") or 0) > 0
                       else '<div class="reply-sub">fork depth 0</div>'
                     )
+                    + '<div class="reply-sub">👍 '
+                    + html.escape(str(int(((r.get("reactions") or {}) if isinstance(r.get("reactions"), dict) else {}).get("up") or 0)))
+                    + ' · 😂 '
+                    + html.escape(str(int(((r.get("reactions") or {}) if isinstance(r.get("reactions"), dict) else {}).get("lol") or 0)))
+                    + ' · 🤯 '
+                    + html.escape(str(int(((r.get("reactions") or {}) if isinstance(r.get("reactions"), dict) else {}).get("wow") or 0)))
+                    + '</div>'
+                    + '<div class="reply-sub">shares ' + html.escape(str(int(r.get("shares") or 0))) + ' · completions ' + html.escape(str(int(r.get("completions") or 0))) + '</div>'
                     + '<div class="reply-sub">likes ' + html.escape(str(int(r.get("likes") or 0))) + '</div>'
                     '</div></a>'
                   )

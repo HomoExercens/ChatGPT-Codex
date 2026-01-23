@@ -302,6 +302,32 @@ class ClipLike(Base):
     )
 
 
+class ReplayReaction(Base):
+    __tablename__ = "replay_reactions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    replay_id: Mapped[str] = mapped_column(
+        String, ForeignKey("replays.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    actor_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    user_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    reaction_type: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "replay_id",
+            "actor_id",
+            "reaction_type",
+            name="uq_replay_reactions_replay_actor_type",
+        ),
+    )
+
+
 class Referral(Base):
     __tablename__ = "referrals"
 
@@ -522,6 +548,33 @@ class FunnelDaily(Base):
     step: Mapped[str] = mapped_column(String, primary_key=True)
     users_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     meta_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    type: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    title: Mapped[str | None] = mapped_column(String, nullable=True)
+    body: Mapped[str | None] = mapped_column(String, nullable=True)
+    href: Mapped[str | None] = mapped_column(String, nullable=True)
+    dedupe_key: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    meta_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "dedupe_key", name="uq_notifications_user_dedupe"
+        ),
+    )
 
 
 class Follow(Base):

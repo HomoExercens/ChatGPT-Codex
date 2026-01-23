@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from datetime import UTC, datetime, timedelta
 import hashlib
 from typing import Any, Literal
@@ -14,6 +15,12 @@ from sqlalchemy.orm import Session
 import os
 
 from neuroleague_api.challenges import derive_challenge_match_id
+from neuroleague_api.blueprint_lineage import (
+    compute_root_and_depth,
+    ensure_persisted_root_and_depth,
+    increment_fork_counts,
+)
+from neuroleague_api.build_code import encode_build_code
 from neuroleague_api.core.config import Settings
 from neuroleague_api.deps import CurrentUserId, DBSession
 from neuroleague_api.eventlog import device_id_from_request, log_event
@@ -29,6 +36,7 @@ from neuroleague_api.models import (
     Replay,
     User,
 )
+from neuroleague_sim.canonical import canonical_json_bytes, canonical_sha256
 from neuroleague_sim.models import BlueprintSpec
 from neuroleague_sim.modifiers import select_match_modifiers
 
@@ -93,6 +101,112 @@ def _default_spec(mode: Literal["1v1", "team"], ruleset_version: str) -> dict[st
         "mode": "1v1",
         "team": [{"creature_id": "slime_knight", "formation": "front", "items": {}}],
     }
+
+
+def _active_pack_hash() -> str | None:
+    try:
+        from neuroleague_sim.pack_loader import active_pack_hash
+
+        return active_pack_hash()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+QuickRemixPreset = Literal["survivability", "damage", "counter"]
+
+
+def _apply_quick_remix_preset(
+    spec_dict: dict[str, Any], preset: QuickRemixPreset
+) -> dict[str, Any]:
+    out: dict[str, Any] = copy.deepcopy(spec_dict)
+    team = out.get("team")
+    if not isinstance(team, list) or not team:
+        return out
+
+    def _formation_rank(slot: Any) -> int:
+        if not isinstance(slot, dict):
+            return 1
+        return 0 if str(slot.get("formation") or "") == "front" else 1
+
+    indices = list(range(len(team)))
+    indices.sort(key=lambda i: (_formation_rank(team[i]), i))
+
+    def _items(slot: Any) -> dict[str, Any] | None:
+        if not isinstance(slot, dict):
+            return None
+        items = slot.get("items")
+        if not isinstance(items, dict):
+            items = {}
+            slot["items"] = items
+        return items
+
+    changes = 0
+    max_changes = 3
+
+    if preset == "survivability":
+        for i in indices:
+            if changes >= max_changes:
+                break
+            items = _items(team[i])
+            if items is None:
+                continue
+            if not items.get("armor"):
+                items["armor"] = "reinforced_plate"
+                changes += 1
+        if changes == 0:
+            for i in indices:
+                if changes >= max_changes:
+                    break
+                items = _items(team[i])
+                if items is None:
+                    continue
+                if not items.get("utility"):
+                    items["utility"] = "smoke_emitter"
+                    changes += 1
+                    break
+    elif preset == "damage":
+        for i in indices:
+            if changes >= max_changes:
+                break
+            items = _items(team[i])
+            if items is None:
+                continue
+            if not items.get("weapon"):
+                items["weapon"] = "ember_blade"
+                changes += 1
+        if changes == 0:
+            for i in indices:
+                if changes >= max_changes:
+                    break
+                items = _items(team[i])
+                if items is None:
+                    continue
+                if not items.get("utility"):
+                    items["utility"] = "targeting_array"
+                    changes += 1
+                    break
+    else:
+        for i in indices:
+            if changes >= max_changes:
+                break
+            items = _items(team[i])
+            if items is None:
+                continue
+            if not items.get("utility"):
+                items["utility"] = "smoke_emitter"
+                changes += 1
+        if changes == 0:
+            for i in indices:
+                if changes >= max_changes:
+                    break
+                items = _items(team[i])
+                if items is None:
+                    continue
+                if not items.get("armor"):
+                    items["armor"] = "nanofiber_cloak"
+                    changes += 1
+                    break
+    return out
 
 
 def _hash_device_id(*, raw: str, secret: str) -> str:
@@ -522,7 +636,13 @@ def _accept_challenge_impl(
     bp_a: Blueprint | None = None
     if req.blueprint_id:
         cand = db.get(Blueprint, req.blueprint_id)
-        if cand and cand.user_id == user_id and cand.status == "submitted":
+        if (
+            cand
+            and cand.user_id == user_id
+            and str(cand.status or "") in {"submitted", "draft"}
+            and str(cand.mode or "") == str(ch.mode or "")
+            and str(cand.ruleset_version or "") == str(ch.ruleset_version or "")
+        ):
             bp_a = cand
     if bp_a is None:
         bp_a = db.scalar(
@@ -534,6 +654,16 @@ def _accept_challenge_impl(
             .order_by(desc(Blueprint.submitted_at), desc(Blueprint.updated_at))
             .limit(1)
         )
+        if bp_a is None:
+            bp_a = db.scalar(
+                select(Blueprint)
+                .where(Blueprint.user_id == user_id)
+                .where(Blueprint.status == "draft")
+                .where(Blueprint.mode == ch.mode)
+                .where(Blueprint.ruleset_version == ch.ruleset_version)
+                .order_by(desc(Blueprint.updated_at), Blueprint.id.asc())
+                .limit(1)
+            )
 
     if bp_a:
         spec_a_dict = orjson.loads(bp_a.spec_json)
@@ -841,6 +971,189 @@ def beat_clip(
         attempt_id=accept.attempt_id,
         match_id=accept.match_id,
         status=accept.status,
+    )
+
+
+class QuickRemixRequest(BaseModel):
+    preset_id: QuickRemixPreset
+    source: str | None = Field(default=None, max_length=64)
+
+
+class QuickRemixResponse(BaseModel):
+    blueprint_id: str
+    parent_blueprint_id: str
+    build_code: str | None = None
+
+
+@router.post("/clip/{replay_id}/quick_remix", response_model=QuickRemixResponse)
+def quick_remix_for_clip(
+    request: Request,
+    replay_id: str,
+    req: QuickRemixRequest,
+    user_id: str = CurrentUserId,
+    db: Session = DBSession,
+) -> QuickRemixResponse:
+    ch = _get_or_create_clip_challenge(db, replay_id=replay_id, creator_user_id=user_id)
+
+    parent_bp: Blueprint | None = (
+        db.get(Blueprint, str(ch.target_blueprint_id))
+        if ch.target_blueprint_id
+        else None
+    )
+    if parent_bp is None and ch.target_replay_id:
+        replay = db.get(Replay, ch.target_replay_id)
+        match = db.get(Match, replay.match_id) if replay else None
+        if match and match.blueprint_a_id:
+            parent_bp = db.get(Blueprint, str(match.blueprint_a_id))
+        elif match and match.blueprint_b_id:
+            parent_bp = db.get(Blueprint, str(match.blueprint_b_id))
+    if parent_bp is None or str(parent_bp.status or "") != "submitted":
+        raise HTTPException(status_code=404, detail="Target build not available")
+
+    settings = Settings()
+    check_rate_limit_dual(
+        user_id=user_id,
+        request=request,
+        action="quick_remix",
+        per_minute_user=int(settings.rate_limit_blueprint_fork_per_minute),
+        per_hour_user=int(settings.rate_limit_blueprint_fork_per_hour),
+        per_minute_ip=int(settings.rate_limit_blueprint_fork_per_minute_ip),
+        per_hour_ip=int(settings.rate_limit_blueprint_fork_per_hour_ip),
+        extra_detail={"parent_blueprint_id": str(parent_bp.id), "replay_id": str(replay_id)},
+    )
+
+    now = datetime.now(UTC)
+    preset_id = str(req.preset_id)
+    source = (req.source or "").strip()[:64] if req.source else None
+
+    try:
+        log_event(
+            db,
+            type="quick_remix_selected",
+            user_id=user_id,
+            request=request,
+            payload={
+                "preset_id": preset_id,
+                "source": source or "unknown",
+                "replay_id": str(replay_id),
+                "parent_blueprint_id": str(parent_bp.id),
+            },
+            now=now,
+        )
+        db.commit()
+    except Exception:  # noqa: BLE001
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+
+    root_id, src_depth, chain_ids = compute_root_and_depth(db, blueprint=parent_bp)
+    if str(getattr(parent_bp, "fork_root_blueprint_id", "") or "").strip() != str(root_id):
+        ensure_persisted_root_and_depth(
+            db,
+            blueprint_id=str(parent_bp.id),
+            root_blueprint_id=str(root_id),
+            depth=src_depth,
+        )
+
+    base_spec_dict = orjson.loads(parent_bp.spec_json or "{}")
+    base_spec = BlueprintSpec.model_validate(base_spec_dict)
+    remix_dict = _apply_quick_remix_preset(base_spec.model_dump(), preset=preset_id)  # type: ignore[arg-type]
+    remix_spec = BlueprintSpec.model_validate(remix_dict)
+
+    spec_json = canonical_json_bytes(remix_spec.model_dump()).decode("utf-8")
+    spec_hash = canonical_sha256(remix_spec.model_dump())
+    build_code = encode_build_code(spec=remix_spec, pack_hash=_active_pack_hash())
+
+    label = {
+        "survivability": "Tankier",
+        "damage": "Melt Faster",
+        "counter": "Counter",
+    }.get(preset_id, "Quick Remix")
+    name = f"{parent_bp.name} (Quick: {label})"
+    name = (name[:64]).strip() or "Quick Remix"
+
+    bp = Blueprint(
+        id=f"bp_{uuid4().hex}",
+        user_id=user_id,
+        name=name,
+        mode=parent_bp.mode,
+        ruleset_version=parent_bp.ruleset_version,
+        status="draft",
+        spec_json=spec_json,
+        spec_hash=spec_hash,
+        meta_json=orjson.dumps(
+            {
+                "source": {
+                    "type": "quick_remix",
+                    "preset_id": preset_id,
+                    "parent_blueprint_id": str(parent_bp.id),
+                    "parent_user_id": str(parent_bp.user_id),
+                    **({"ui_source": source} if source else {}),
+                    "source_replay_id": str(replay_id),
+                }
+            }
+        ).decode("utf-8"),
+        forked_from_id=parent_bp.id,
+        fork_root_blueprint_id=str(root_id),
+        fork_depth=int(src_depth) + 1,
+        fork_count=0,
+        source_replay_id=str(replay_id),
+        build_code=build_code,
+        submitted_at=None,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(bp)
+    increment_fork_counts(db, blueprint_ids=chain_ids, delta=1)
+    db.commit()
+
+    # Analytics (best-effort).
+    try:
+        log_event(
+            db,
+            type="quick_remix_applied",
+            user_id=user_id,
+            request=request,
+            payload={
+                "new_blueprint_id": bp.id,
+                "parent_blueprint_id": str(parent_bp.id),
+                "preset_id": preset_id,
+                "source": source or "unknown",
+                "replay_id": str(replay_id),
+                "mode": str(bp.mode or ""),
+                "ruleset_version": str(bp.ruleset_version or ""),
+            },
+            now=now,
+        )
+        log_event(
+            db,
+            type="fork_created",
+            user_id=user_id,
+            request=request,
+            payload={
+                "new_blueprint_id": bp.id,
+                "parent_blueprint_id": str(parent_bp.id),
+                "fork_root_blueprint_id": str(root_id),
+                "fork_depth": int(src_depth) + 1,
+                "source_replay_id": str(replay_id),
+                "source": "quick_remix",
+                "mode": str(bp.mode or ""),
+                "ruleset_version": str(bp.ruleset_version or ""),
+            },
+            now=now,
+        )
+        db.commit()
+    except Exception:  # noqa: BLE001
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+
+    return QuickRemixResponse(
+        blueprint_id=str(bp.id),
+        parent_blueprint_id=str(parent_bp.id),
+        build_code=str(build_code) if build_code else None,
     )
 
 

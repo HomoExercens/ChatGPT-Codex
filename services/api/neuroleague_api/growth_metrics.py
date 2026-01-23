@@ -70,6 +70,19 @@ FUNNEL_STEPS_REMIX_V2: list[str] = [
     "reply_clip_shared",
 ]
 
+FUNNEL_REMIX_V3: str = "remix_v3"
+FUNNEL_STEPS_REMIX_V3: list[str] = [
+    "share_open",
+    "beat_this_click",
+    "challenge_created",
+    "match_done",
+    "reply_clip_created",
+    "reply_clip_shared",
+    # Branch signals (not strictly sequential, but we want daily coverage).
+    "reaction_click",
+    "notification_opened",
+]
+
 FUNNEL_DEMO_V1: str = "demo_v1"
 FUNNEL_STEPS_DEMO_V1: list[str] = [
     "demo_run_start",
@@ -84,6 +97,7 @@ FUNNEL_DEFS: dict[str, list[str]] = {
     FUNNEL_CLIPS_V1: FUNNEL_STEPS_CLIPS_V1,
     FUNNEL_REMIX_V1: FUNNEL_STEPS_REMIX_V1,
     FUNNEL_REMIX_V2: FUNNEL_STEPS_REMIX_V2,
+    FUNNEL_REMIX_V3: FUNNEL_STEPS_REMIX_V3,
     FUNNEL_DEMO_V1: FUNNEL_STEPS_DEMO_V1,
 }
 
@@ -195,6 +209,16 @@ def rollup_growth_metrics(
                         "clip_open_ranked",
                         "clip_fork_click",
                         "clip_remix_click",
+                        # Remix v2/v3 (reply-chain / social graph)
+                        "beat_this_click",
+                        "challenge_created",
+                        "match_done",
+                        "reply_clip_created",
+                        "reply_clip_shared",
+                        "reaction_click",
+                        "notification_opened",
+                        "quick_remix_selected",
+                        "quick_remix_applied",
                         "wishlist_click",
                         "discord_click",
                     ]
@@ -348,6 +372,46 @@ def rollup_growth_metrics(
         add_metric(
             "reply_clip_shared_events",
             float(count_by_type.get("reply_clip_shared", 0)),
+        )
+        add_metric(
+            "reply_clip_created_users",
+            float(len(unique_by_type.get("reply_clip_created", set()))),
+        )
+        add_metric(
+            "reply_clip_created_events",
+            float(count_by_type.get("reply_clip_created", 0)),
+        )
+        add_metric(
+            "reaction_click_users",
+            float(len(unique_by_type.get("reaction_click", set()))),
+        )
+        add_metric(
+            "reaction_click_events",
+            float(count_by_type.get("reaction_click", 0)),
+        )
+        add_metric(
+            "notification_opened_users",
+            float(len(unique_by_type.get("notification_opened", set()))),
+        )
+        add_metric(
+            "notification_opened_events",
+            float(count_by_type.get("notification_opened", 0)),
+        )
+        add_metric(
+            "quick_remix_selected_users",
+            float(len(unique_by_type.get("quick_remix_selected", set()))),
+        )
+        add_metric(
+            "quick_remix_selected_events",
+            float(count_by_type.get("quick_remix_selected", 0)),
+        )
+        add_metric(
+            "quick_remix_applied_users",
+            float(len(unique_by_type.get("quick_remix_applied", set()))),
+        )
+        add_metric(
+            "quick_remix_applied_events",
+            float(count_by_type.get("quick_remix_applied", 0)),
         )
         add_metric(
             "wishlist_click_users",
@@ -514,6 +578,16 @@ def load_experiment_stats(
             "replay_open",
             "blueprint_fork",
             "blueprint_submit",
+            # Remix v2/v3 (reply-chain).
+            "beat_this_click",
+            "challenge_created",
+            "match_done",
+            "reply_clip_created",
+            "reply_clip_shared",
+            "reaction_click",
+            "notification_opened",
+            "quick_remix_selected",
+            "quick_remix_applied",
         }
     )
     conversions_by_type: dict[str, set[str]] = defaultdict(set)

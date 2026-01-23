@@ -223,6 +223,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         leaderboard,
         matches,
         meta,
+        notifications,
         ops,
         quests,
         replays,
@@ -249,6 +250,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
     app.include_router(meta.router)
     app.include_router(demo.router)
     app.include_router(share.router)
+    app.include_router(notifications.router)
     app.include_router(render_jobs.router)
     app.include_router(leaderboard.router)
     app.include_router(users.router)

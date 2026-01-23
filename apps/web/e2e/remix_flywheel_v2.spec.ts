@@ -25,9 +25,27 @@ test('share landing Beat This → Replay shows Reply share CTA, and Replies appe
   await expect(page.getByRole('button', { name: 'Share Reply Clip' })).toBeVisible({ timeout: 60_000 });
   await expect(page.getByRole('link', { name: 'View Original' })).toBeVisible({ timeout: 60_000 });
 
+  // v3: reactions on reply clip.
+  const upReaction = page.getByRole('button', { name: /👍/ }).first();
+  await expect(upReaction).toBeVisible({ timeout: 60_000 });
+  await upReaction.click();
+
   // Reply-chain should show on the original share landing.
   await page.goto('/s/clip/r_seed_001?start=0.0&end=2.0&v=1');
-  await expect(page.getByText('Replies')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'Replies' })).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('a.reply-card').first()).toBeVisible({ timeout: 60_000 });
-});
 
+  // v3: notifications badge for the original clip owner (login as demo).
+  const login = await page.request.post('/api/auth/login', { data: { username: 'demo' } });
+  expect(login.ok()).toBeTruthy();
+  const loginJson = await login.json();
+  expect(loginJson.access_token).toBeTruthy();
+  await page.evaluate((tok) => {
+    localStorage.setItem('neuroleague.token', String(tok));
+  }, loginJson.access_token);
+
+  await page.goto('/home');
+  const bell = page.getByRole('button', { name: 'Notifications' });
+  await expect(bell).toBeVisible({ timeout: 60_000 });
+  await expect(bell.locator('span')).toBeVisible({ timeout: 60_000 });
+});

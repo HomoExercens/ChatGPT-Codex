@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import hashlib
 from typing import Any, Literal
 from urllib.parse import parse_qs, urlparse
+from uuid import uuid4
 
+import orjson
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from neuroleague_api.core.config import Settings
 from neuroleague_api.deps import CurrentUserId, DBSession
 from neuroleague_api.eventlog import ip_hash_from_request, user_agent_hash_from_request
 from neuroleague_api.eventlog import log_event
+from neuroleague_api.models import Match, Notification, Replay, User
 from neuroleague_api.rate_limit import check_rate_limit_dual
 
 router = APIRouter(prefix="/api/events", tags=["events"])
@@ -40,6 +45,11 @@ EventType = Literal[
     "challenge_created",
     "reply_clip_created",
     "reply_clip_shared",
+    # Remix flywheel v3.
+    "reaction_click",
+    "notification_opened",
+    "quick_remix_selected",
+    "quick_remix_applied",
     "blueprint_submit",
     "ranked_queue",
     "ranked_done",
@@ -199,6 +209,66 @@ def track(
         "meta": req.meta,
     }
     ev = log_event(db, type=req.type, user_id=user_id, request=request, payload=payload)
+
+    # In-app notification hooks (best-effort).
+    if str(req.type) == "reply_clip_shared":
+        try:
+            meta = req.meta if isinstance(req.meta, dict) else {}
+            reply_replay_id = str(meta.get("reply_replay_id") or "").strip()
+            parent_replay_id = str(
+                meta.get("parent_replay_id") or meta.get("replay_id") or ""
+            ).strip()
+            match_id = str(meta.get("match_id") or "").strip()
+            if reply_replay_id and parent_replay_id:
+                parent_replay = db.get(Replay, parent_replay_id)
+                parent_match = (
+                    db.get(Match, parent_replay.match_id) if parent_replay else None
+                )
+                recipient = (
+                    str(getattr(parent_match, "user_a_id", "") or "")
+                    if parent_match
+                    else ""
+                )
+                if recipient and not recipient.startswith("guest_"):
+                    dedupe_key = f"reply:{reply_replay_id}"
+                    exists = db.scalar(
+                        select(Notification)
+                        .where(Notification.user_id == recipient)
+                        .where(Notification.dedupe_key == dedupe_key)
+                        .limit(1)
+                    )
+                    if not exists:
+                        challenger = db.get(User, str(user_id))
+                        challenger_name = (
+                            str(challenger.display_name)
+                            if challenger and challenger.display_name
+                            else "Someone"
+                        )
+                        db.add(
+                            Notification(
+                                id=f"nt_{uuid4().hex}",
+                                user_id=recipient,
+                                type="reply_clip_shared",
+                                title="Reply clip shared"[:120],
+                                body=f"{challenger_name} shared a reply to your clip"[:200],
+                                href=f"/replay/{match_id}?reply_to={parent_replay_id}"
+                                if match_id
+                                else f"/s/clip/{parent_replay_id}",
+                                dedupe_key=dedupe_key,
+                                meta_json=orjson.dumps(
+                                    {
+                                        "parent_replay_id": parent_replay_id,
+                                        "reply_replay_id": reply_replay_id,
+                                        "match_id": match_id or None,
+                                        "challenger_user_id": str(user_id),
+                                    }
+                                ).decode("utf-8"),
+                                created_at=datetime.now(UTC),
+                                read_at=None,
+                            )
+                        )
+        except Exception:  # noqa: BLE001
+            pass
     try:
         from neuroleague_api.quests_engine import apply_event_to_quests
 

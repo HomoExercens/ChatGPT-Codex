@@ -412,7 +412,14 @@ def ranked_match_job(
                     try:
                         from sqlalchemy import desc, select
 
-                        from neuroleague_api.models import Challenge, ChallengeAttempt
+                        from neuroleague_api.models import (
+                            Challenge,
+                            ChallengeAttempt,
+                            Match,
+                            Notification,
+                            Replay,
+                            User,
+                        )
 
                         ca = session.scalar(
                             select(ChallengeAttempt)
@@ -448,6 +455,65 @@ def ranked_match_job(
                                 },
                                 now=now,
                             )
+                            try:
+                                parent_replay = session.get(Replay, parent_replay_id)
+                                parent_match = (
+                                    session.get(Match, parent_replay.match_id)
+                                    if parent_replay
+                                    else None
+                                )
+                                recipient = (
+                                    str(getattr(parent_match, "user_a_id", "") or "")
+                                    if parent_match
+                                    else ""
+                                )
+                                if recipient and not recipient.startswith("guest_"):
+                                    dedupe_key = f"reply:{str(replay_id)}"
+                                    exists = session.scalar(
+                                        select(Notification)
+                                        .where(Notification.user_id == recipient)
+                                        .where(Notification.dedupe_key == dedupe_key)
+                                        .limit(1)
+                                    )
+                                    if not exists:
+                                        challenger = session.get(User, str(user_a_id))
+                                        challenger_name = (
+                                            str(challenger.display_name)
+                                            if challenger and challenger.display_name
+                                            else "Someone"
+                                        )
+                                        title = (
+                                            "Someone beat your clip"
+                                            if str(result) == "A"
+                                            else "New reply clip"
+                                        )
+                                        body = (
+                                            f"{challenger_name} replied ({'WIN' if str(result) == 'A' else 'LOSS' if str(result) == 'B' else 'DRAW'})"
+                                        )
+                                        session.add(
+                                            Notification(
+                                                id=f"nt_{uuid4().hex}",
+                                                user_id=recipient,
+                                                type="reply_clip_created",
+                                                title=title[:120],
+                                                body=body[:200],
+                                                href=f"/replay/{match_id}?reply_to={parent_replay_id}",
+                                                dedupe_key=dedupe_key,
+                                                meta_json=orjson.dumps(
+                                                    {
+                                                        "parent_replay_id": parent_replay_id,
+                                                        "reply_replay_id": str(replay_id),
+                                                        "match_id": str(match_id),
+                                                        "challenger_user_id": str(user_a_id),
+                                                        "outcome": str(result),
+                                                    }
+                                                ).decode("utf-8"),
+                                                created_at=now,
+                                                read_at=None,
+                                            )
+                                        )
+                            except Exception:  # noqa: BLE001
+                                pass
                     except Exception:  # noqa: BLE001
                         pass
             except Exception:  # noqa: BLE001

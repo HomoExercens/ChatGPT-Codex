@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { EyeOff, Flag, Heart, Share2, Sparkles, Trophy, Zap } from 'lucide-react';
+import { EyeOff, Flag, Heart, MessageCircle, Share2, Sparkles, Trophy, Wand2, Zap } from 'lucide-react';
 
 import { Badge, Button } from '../components/ui';
-import type { BlueprintOut, ClipEventResponse, ClipFeedItem, ClipFeedOut, Mode, QueueResponse } from '../api/types';
+import type { BlueprintOut, ClipEventResponse, ClipFeedItem, ClipFeedOut, Mode, QueueResponse, RepliesResponse } from '../api/types';
 import { apiFetch } from '../lib/api';
 import { getExperimentVariant, useExperiments } from '../lib/experiments';
 import { readShareVariants } from '../lib/shareVariants';
@@ -95,9 +95,23 @@ export const ClipsPage: React.FC = () => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRefs = useRef<Array<HTMLVideoElement | null>>([]);
   const [activeIndex, setActiveIndex] = useState(0);
+  const activeClip = useMemo(() => clips[activeIndex] ?? null, [activeIndex, clips]);
   const viewed = useRef<Set<string>>(new Set());
   const completed = useRef<Set<string>>(new Set());
   const [slideState, setSlideState] = useState<Record<string, SlideState>>({});
+  const [quickRemixOpen, setQuickRemixOpen] = useState(false);
+  const [repliesOpen, setRepliesOpen] = useState(false);
+  const [repliesTab, setRepliesTab] = useState<'top' | 'recent'>('top');
+
+  const { data: repliesData, isFetching: repliesFetching, error: repliesError } = useQuery({
+    queryKey: ['clipReplies', activeClip?.replay_id, repliesTab],
+    queryFn: () =>
+      apiFetch<RepliesResponse>(
+        `/api/clips/${encodeURIComponent(activeClip!.replay_id)}/replies?sort=${encodeURIComponent(repliesTab)}&limit=12`
+      ),
+    enabled: Boolean(repliesOpen && activeClip?.replay_id),
+    staleTime: 10_000,
+  });
 
   const trackEventMutation = useMutation({
     mutationFn: ({
@@ -505,6 +519,34 @@ export const ClipsPage: React.FC = () => {
                       <Button
                         type="button"
                         size="icon"
+                        variant="secondary"
+                        className="pointer-events-auto rounded-full"
+                        onClick={() => setQuickRemixOpen(true)}
+                        aria-label="Quick Remix presets"
+                        disabled={!item.replay_id}
+                      >
+                        <Wand2 size={18} />
+                      </Button>
+                      <div className="text-white/80 text-[11px] font-bold">Quick Remix</div>
+
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="secondary"
+                        className="pointer-events-auto rounded-full"
+                        onClick={() => {
+                          setRepliesTab('top');
+                          setRepliesOpen(true);
+                        }}
+                        aria-label="Replies (view reply chain)"
+                      >
+                        <MessageCircle size={18} />
+                      </Button>
+                      <div className="text-white/80 text-[11px] font-bold">Replies</div>
+
+                      <Button
+                        type="button"
+                        size="icon"
                         variant={shareCta === 'remix' ? 'primary' : 'secondary'}
                         className="pointer-events-auto rounded-full"
                         onClick={() => remixMutation.mutate(item)}
@@ -556,6 +598,166 @@ export const ClipsPage: React.FC = () => {
           <span>{lang === 'ko' ? '스크롤 또는 ↑/↓ 로 이동' : 'Scroll or use ↑/↓ to navigate'}</span>
         </div>
       </div>
+
+      {quickRemixOpen && activeClip ? (
+        <div
+          className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4"
+          onClick={() => setQuickRemixOpen(false)}
+        >
+          <div
+            className="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+              <div className="font-bold text-slate-800">Quick Remix</div>
+              <button
+                type="button"
+                className="text-xs font-semibold text-slate-500 hover:text-slate-800"
+                onClick={() => setQuickRemixOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="px-4 py-4 space-y-2">
+              <div className="text-sm text-slate-600">
+                Pick a preset to apply minimal tweaks to the original build, then start a “Beat This” challenge.
+              </div>
+              <div className="grid grid-cols-1 gap-2 pt-2">
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    setQuickRemixOpen(false);
+                    navigate(
+                      `/beat?replay_id=${encodeURIComponent(activeClip.replay_id)}&src=clip_view&qr=survivability`
+                    );
+                  }}
+                >
+                  Tankier (survivability)
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    setQuickRemixOpen(false);
+                    navigate(`/beat?replay_id=${encodeURIComponent(activeClip.replay_id)}&src=clip_view&qr=damage`);
+                  }}
+                >
+                  Melt Faster (damage)
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    setQuickRemixOpen(false);
+                    navigate(`/beat?replay_id=${encodeURIComponent(activeClip.replay_id)}&src=clip_view&qr=counter`);
+                  }}
+                >
+                  Counter-first (counter)
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setQuickRemixOpen(false);
+                    navigate(`/beat?replay_id=${encodeURIComponent(activeClip.replay_id)}&src=clip_view`);
+                  }}
+                >
+                  Just Beat This (no remix)
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {repliesOpen && activeClip ? (
+        <div
+          className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4"
+          onClick={() => setRepliesOpen(false)}
+        >
+          <div
+            className="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+              <div className="font-bold text-slate-800">Replies</div>
+              <button
+                type="button"
+                className="text-xs font-semibold text-slate-500 hover:text-slate-800"
+                onClick={() => setRepliesOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="px-4 py-3 flex gap-2">
+              <Button size="sm" variant={repliesTab === 'top' ? 'primary' : 'secondary'} onClick={() => setRepliesTab('top')}>
+                Top Replies
+              </Button>
+              <Button
+                size="sm"
+                variant={repliesTab === 'recent' ? 'primary' : 'secondary'}
+                onClick={() => setRepliesTab('recent')}
+              >
+                Recent
+              </Button>
+            </div>
+            <div className="px-4 pb-4 max-h-[70vh] overflow-auto">
+              {repliesFetching ? <div className="text-sm text-slate-500 py-3">Loading…</div> : null}
+              {repliesError ? (
+                <div className="text-sm text-red-600 py-3 break-words">{String(repliesError)}</div>
+              ) : null}
+              {repliesData?.items?.length ? (
+                <div className="space-y-2">
+                  {repliesData.items.map((r) => (
+                    <button
+                      key={r.reply_replay_id}
+                      type="button"
+                      className="w-full text-left bg-white border border-slate-200 rounded-2xl overflow-hidden hover:bg-slate-50 transition-colors"
+                      onClick={() => {
+                        setRepliesOpen(false);
+                        navigate(`/replay/${encodeURIComponent(r.match_id)}?reply_to=${encodeURIComponent(activeClip.replay_id)}`);
+                      }}
+                    >
+                      <div className="flex gap-3 p-3">
+                        <img
+                          src={`/s/clip/${encodeURIComponent(r.reply_replay_id)}/thumb.png`}
+                          alt="Reply thumbnail"
+                          className="w-20 h-14 rounded-xl border border-slate-200 object-cover bg-slate-100"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                r.outcome === 'win'
+                                  ? 'bg-green-100 text-green-700'
+                                  : r.outcome === 'loss'
+                                  ? 'bg-red-100 text-red-700'
+                                  : 'bg-slate-100 text-slate-600'
+                              }`}
+                            >
+                              {r.outcome.toUpperCase()}
+                            </span>
+                            <div className="text-sm font-semibold text-slate-800 truncate">
+                              {r.challenger_display_name ?? 'Guest'}
+                            </div>
+                          </div>
+                          <div className="text-xs text-slate-600 mt-1 truncate">{r.blueprint_name ?? 'Starter Build'}</div>
+                          <div className="text-[11px] text-slate-500 mt-2">
+                            👍 {r.reactions?.up ?? 0} · 😂 {r.reactions?.lol ?? 0} · 🤯 {r.reactions?.wow ?? 0} · shares{' '}
+                            {r.shares ?? 0}
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            fork depth {r.lineage?.fork_depth ?? 0}
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : !repliesFetching && !repliesError ? (
+                <div className="text-sm text-slate-500 py-3">No replies yet.</div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };
