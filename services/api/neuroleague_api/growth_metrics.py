@@ -61,6 +61,15 @@ FUNNEL_STEPS_REMIX_V1: list[str] = [
     "first_match_done",
 ]
 
+FUNNEL_REMIX_V2: str = "remix_v2"
+FUNNEL_STEPS_REMIX_V2: list[str] = [
+    "share_open",
+    "beat_this_click",
+    "challenge_created",
+    "match_done",
+    "reply_clip_shared",
+]
+
 FUNNEL_DEMO_V1: str = "demo_v1"
 FUNNEL_STEPS_DEMO_V1: list[str] = [
     "demo_run_start",
@@ -74,6 +83,7 @@ FUNNEL_DEFS: dict[str, list[str]] = {
     FUNNEL_SHARE_V1: FUNNEL_STEPS_SHARE_V1,
     FUNNEL_CLIPS_V1: FUNNEL_STEPS_CLIPS_V1,
     FUNNEL_REMIX_V1: FUNNEL_STEPS_REMIX_V1,
+    FUNNEL_REMIX_V2: FUNNEL_STEPS_REMIX_V2,
     FUNNEL_DEMO_V1: FUNNEL_STEPS_DEMO_V1,
 }
 
@@ -318,6 +328,27 @@ def rollup_growth_metrics(
         add_metric("clip_share_users", float(len(unique_by_type.get("clip_share", set()))))
         add_metric("fork_click_events", float(count_by_type.get("fork_click", 0)))
         add_metric("fork_created_events", float(count_by_type.get("fork_created", 0)))
+        add_metric(
+            "beat_this_click_users",
+            float(len(unique_by_type.get("beat_this_click", set()))),
+        )
+        add_metric("beat_this_click_events", float(count_by_type.get("beat_this_click", 0)))
+        add_metric(
+            "challenge_created_users",
+            float(len(unique_by_type.get("challenge_created", set()))),
+        )
+        add_metric(
+            "challenge_created_events",
+            float(count_by_type.get("challenge_created", 0)),
+        )
+        add_metric(
+            "reply_clip_shared_users",
+            float(len(unique_by_type.get("reply_clip_shared", set()))),
+        )
+        add_metric(
+            "reply_clip_shared_events",
+            float(count_by_type.get("reply_clip_shared", 0)),
+        )
         add_metric(
             "wishlist_click_users",
             float(len(unique_by_type.get("wishlist_click", set()))),

@@ -577,6 +577,14 @@ export const ReplayPage: React.FC = () => {
     };
   }, [clipRange.endTick, clipRange.startTick, match?.replay_id]);
 
+  const replyToReplayId = useMemo(() => {
+    const fromMatch = match?.challenge?.target_replay_id ?? null;
+    const fromQuery = (searchParams.get('reply_to') || '').trim() || null;
+    return fromMatch || fromQuery;
+  }, [match?.challenge?.target_replay_id, searchParams]);
+
+  const isReplyClip = Boolean(match?.queue_type === 'challenge' && replyToReplayId);
+
   const beatThisMutation = useMutation({
     mutationFn: async () => {
       if (!match?.replay_id) throw new Error('Replay not ready');
@@ -707,6 +715,59 @@ export const ReplayPage: React.FC = () => {
     });
     const url = appendUtmParams(withReferral(minted.share_url_vertical), {
       utm_source: 'replay_share',
+      utm_medium: 'copy',
+    });
+    await copyEndpointLink(url);
+  };
+
+  const copyReplyClipLink = async () => {
+    if (!match?.replay_id) return;
+    const parent = replyToReplayId;
+    const minted = await apiFetch<ClipShareUrlOut>(
+      `/api/clips/${encodeURIComponent(match.replay_id)}/share_url?orientation=vertical`
+    );
+
+    // Keep clip stats/share counts.
+    await apiFetch(`/api/clips/${encodeURIComponent(match.replay_id)}/event`, {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'share',
+        source: 'reply_clip',
+        meta: {
+          clip_len_v1: minted.variant,
+          captions_v2: minted.captions_template_id,
+          start_sec: minted.start_sec,
+          end_sec: minted.end_sec,
+          replay_id: match.replay_id,
+          captions_template_id: minted.captions_template_id,
+          captions_version: minted.captions_version,
+          parent_replay_id: parent,
+        },
+      }),
+    });
+
+    // Remix v2 signal (best-effort).
+    try {
+      await apiFetch('/api/events/track', {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'reply_clip_shared',
+          source: 'replay',
+          meta: {
+            match_id: id,
+            reply_replay_id: match.replay_id,
+            parent_replay_id: parent,
+            replay_id: parent,
+            challenge_id: match.challenge?.challenge_id ?? null,
+          },
+        }),
+      });
+    } catch {
+      // ignore
+    }
+
+    const url = appendUtmParams(withReferral(minted.share_url_vertical), {
+      utm_source: 'reply_clip_share',
       utm_medium: 'copy',
     });
     await copyEndpointLink(url);
@@ -896,6 +957,21 @@ export const ReplayPage: React.FC = () => {
                 >
                   Copy Best Clip Link
                 </Button>
+                {isReplyClip ? (
+                  <Button variant="secondary" size="sm" onClick={() => copyReplyClipLink()} disabled={!match?.replay_id}>
+                    Share Reply Clip
+                  </Button>
+                ) : null}
+                {isReplyClip && replyToReplayId ? (
+                  <a
+                    href={`/s/clip/${encodeURIComponent(replyToReplayId)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50"
+                  >
+                    View Original
+                  </a>
+                ) : null}
                 {bestMp4Url && bestClip ? (
                   <a
                     href={`/s/clip/${encodeURIComponent(bestClip.replay_id)}/kit.zip?start=${bestClip.start_sec.toFixed(1)}&end=${bestClip.end_sec.toFixed(1)}&ref=in_app`}

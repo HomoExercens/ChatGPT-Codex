@@ -8,6 +8,7 @@ from uuid import uuid4
 import orjson
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError, PendingRollbackError
 from sqlalchemy import case, desc, func, select
 from sqlalchemy.orm import Session
 import os
@@ -15,9 +16,9 @@ import os
 from neuroleague_api.challenges import derive_challenge_match_id
 from neuroleague_api.core.config import Settings
 from neuroleague_api.deps import CurrentUserId, DBSession
-from neuroleague_api.eventlog import log_event
+from neuroleague_api.eventlog import device_id_from_request, log_event
 from neuroleague_api.match_sync import run_match_sync
-from neuroleague_api.rate_limit import check_rate_limit_dual
+from neuroleague_api.rate_limit import check_rate_limit, check_rate_limit_dual
 from neuroleague_api.ray_runtime import ensure_ray
 from neuroleague_api.ray_tasks import ranked_match_job
 from neuroleague_api.models import (
@@ -92,6 +93,112 @@ def _default_spec(mode: Literal["1v1", "team"], ruleset_version: str) -> dict[st
         "mode": "1v1",
         "team": [{"creature_id": "slime_knight", "formation": "front", "items": {}}],
     }
+
+
+def _hash_device_id(*, raw: str, secret: str) -> str:
+    return hashlib.sha256(f"{raw}|{secret}".encode("utf-8")).hexdigest()
+
+
+def _get_or_create_clip_challenge(
+    db: Session,
+    *,
+    replay_id: str,
+    creator_user_id: str,
+) -> Challenge:
+    # Reuse the newest active clip challenge for this replay to keep share URLs stable.
+    existing = db.scalar(
+        select(Challenge)
+        .where(Challenge.status == "active")
+        .where(Challenge.kind == "clip")
+        .where(Challenge.target_replay_id == replay_id)
+        .order_by(desc(Challenge.created_at), desc(Challenge.id))
+        .limit(1)
+    )
+    if existing:
+        return existing
+
+    settings = Settings()
+    now = datetime.now(UTC)
+
+    target_replay = db.get(Replay, replay_id)
+    if not target_replay:
+        raise HTTPException(status_code=404, detail="Replay not found")
+    target_match = db.get(Match, target_replay.match_id)
+    mode = str(getattr(target_match, "mode", "") or "1v1")
+    ruleset = str(
+        getattr(target_match, "ruleset_version", "") or settings.ruleset_version
+    )
+    if ruleset != settings.ruleset_version:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "ruleset_mismatch",
+                "expected": settings.ruleset_version,
+                "got": ruleset,
+            },
+        )
+
+    target_bp: Blueprint | None = None
+    if target_match and getattr(target_match, "blueprint_a_id", None):
+        target_bp = db.get(Blueprint, str(target_match.blueprint_a_id))
+
+    # Keep the environment stable if the clip had modifiers; otherwise fall back to
+    # deterministic selection based on the new challenge id.
+    challenge_id = f"ch_{uuid4().hex}"
+    mods: dict[str, Any] | None = None
+    if target_match and getattr(target_match, "portal_id", None):
+        try:
+            aug_a = orjson.loads(getattr(target_match, "augments_a_json", "[]") or "[]")
+            aug_b = orjson.loads(getattr(target_match, "augments_b_json", "[]") or "[]")
+            if isinstance(aug_a, list) and isinstance(aug_b, list):
+                mods = {
+                    "portal_id": str(target_match.portal_id),
+                    "augments_a": aug_a,
+                    "augments_b": aug_b,
+                }
+        except Exception:  # noqa: BLE001
+            mods = None
+    if mods is None:
+        mods = select_match_modifiers(challenge_id)
+
+    # Stable clip segment selection (used by share landing; match sim is full-length).
+    start_sec = 0.0
+    end_sec: float | None = 6.0
+    try:
+        from neuroleague_api.clip_render import best_clip_segment
+        from neuroleague_api.storage import load_replay_json
+
+        payload = load_replay_json(artifact_path=target_replay.artifact_path)
+        st, et = best_clip_segment(payload, max_duration_sec=12.0)
+        start_sec = float(st) / 20.0
+        end_sec = float(et) / 20.0
+    except Exception:  # noqa: BLE001
+        start_sec, end_sec = _clamp_seconds(start=0.0, end=6.0)
+
+    ch = Challenge(
+        id=challenge_id,
+        kind="clip",
+        target_blueprint_id=target_bp.id if target_bp else None,
+        target_replay_id=target_replay.id,
+        start_sec=float(start_sec),
+        end_sec=float(end_sec) if end_sec is not None else None,
+        mode=mode,
+        ruleset_version=ruleset,
+        week_id=None,
+        portal_id=str(mods.get("portal_id") or "") if mods else None,
+        augments_a_json=orjson.dumps(mods.get("augments_a") or []).decode("utf-8")
+        if mods
+        else "[]",
+        augments_b_json=orjson.dumps(mods.get("augments_b") or []).decode("utf-8")
+        if mods
+        else "[]",
+        creator_user_id=creator_user_id,
+        status="active",
+        created_at=now,
+    )
+    db.add(ch)
+    db.commit()
+    return ch
 
 
 class ChallengeCreateRequest(BaseModel):
@@ -300,42 +407,87 @@ class ChallengeAcceptResponse(BaseModel):
     status: Literal["queued", "running"]
 
 
-@router.post("/{challenge_id}/accept", response_model=ChallengeAcceptResponse)
-def accept_challenge(
+def _accept_challenge_impl(
+    *,
     request: Request,
-    challenge_id: str,
+    ch: Challenge,
     req: ChallengeAcceptRequest,
-    user_id: str = CurrentUserId,
-    db: Session = DBSession,
+    user_id: str,
+    db: Session,
+    source: str | None = None,
 ) -> ChallengeAcceptResponse:
-    ch = db.get(Challenge, challenge_id)
-    if not ch or ch.status != "active":
-        raise HTTPException(status_code=404, detail="Challenge not found")
-
     settings = Settings()
-    check_rate_limit_dual(
-        user_id=user_id,
-        request=request,
-        action="challenge_accept",
-        per_minute_user=int(settings.rate_limit_challenge_accept_per_minute),
-        per_hour_user=int(settings.rate_limit_challenge_accept_per_hour),
-        per_minute_ip=int(settings.rate_limit_challenge_accept_per_minute_ip),
-        per_hour_ip=int(settings.rate_limit_challenge_accept_per_hour_ip),
-        extra_detail={"challenge_id": challenge_id},
-    )
-
     now = datetime.now(UTC)
-    daily_limit = 10
-    since = now - timedelta(days=1)
-    recent_count = int(
-        db.scalar(
-            select(func.count(ChallengeAttempt.id))
+
+    is_guest = str(user_id or "").startswith("guest_")
+    if is_guest:
+        check_rate_limit_dual(
+            user_id=user_id,
+            request=request,
+            action="challenge_accept_guest",
+            per_minute_user=int(settings.rate_limit_guest_challenge_accept_per_minute),
+            per_hour_user=int(settings.rate_limit_guest_challenge_accept_per_hour),
+            per_minute_ip=int(settings.rate_limit_guest_challenge_accept_per_minute_ip),
+            per_hour_ip=int(settings.rate_limit_guest_challenge_accept_per_hour_ip),
+            extra_detail={"challenge_id": ch.id},
+        )
+        dev = device_id_from_request(request)
+        if dev:
+            dev_hash = _hash_device_id(raw=str(dev), secret=str(settings.auth_jwt_secret))
+            check_rate_limit(
+                user_id=f"dev:{dev_hash[:48]}",
+                action="challenge_accept_guest",
+                per_minute=int(settings.rate_limit_guest_challenge_accept_per_minute_device),
+                per_hour=int(settings.rate_limit_guest_challenge_accept_per_hour_device),
+                now=now,
+                extra_detail={"challenge_id": ch.id, "scope": "device"},
+            )
+    else:
+        check_rate_limit_dual(
+            user_id=user_id,
+            request=request,
+            action="challenge_accept",
+            per_minute_user=int(settings.rate_limit_challenge_accept_per_minute),
+            per_hour_user=int(settings.rate_limit_challenge_accept_per_hour),
+            per_minute_ip=int(settings.rate_limit_challenge_accept_per_minute_ip),
+            per_hour_ip=int(settings.rate_limit_challenge_accept_per_hour_ip),
+            extra_detail={"challenge_id": ch.id},
+        )
+
+    # Fast idempotency / double-click dedupe (after limiter, before daily limit).
+    dedupe_window_sec = max(0, int(settings.challenge_accept_dedupe_window_sec or 0))
+    if dedupe_window_sec > 0:
+        recent = db.scalar(
+            select(ChallengeAttempt)
             .where(ChallengeAttempt.challenge_id == ch.id)
             .where(ChallengeAttempt.challenger_user_id == user_id)
-            .where(ChallengeAttempt.created_at >= since)
+            .order_by(desc(ChallengeAttempt.created_at), desc(ChallengeAttempt.id))
+            .limit(1)
         )
-        or 0
+        if recent and recent.match_id and recent.created_at:
+            created_at = recent.created_at
+            if getattr(created_at, "tzinfo", None) is None:
+                created_at = created_at.replace(tzinfo=UTC)
+            delta = (now - created_at).total_seconds()
+            if 0 <= delta <= float(dedupe_window_sec):
+                m = db.get(Match, str(recent.match_id))
+                if m and str(m.status or "") != "failed":
+                    return ChallengeAcceptResponse(
+                        attempt_id=str(recent.id),
+                        match_id=str(recent.match_id),
+                        status="running" if str(m.status or "") == "running" else "queued",
+                    )
+
+    daily_limit = 1 if is_guest else 10
+    since = now - timedelta(days=1)
+    recent_count_q = (
+        select(func.count(ChallengeAttempt.id))
+        .where(ChallengeAttempt.challenger_user_id == user_id)
+        .where(ChallengeAttempt.created_at >= since)
     )
+    if not is_guest:
+        recent_count_q = recent_count_q.where(ChallengeAttempt.challenge_id == ch.id)
+    recent_count = int(db.scalar(recent_count_q) or 0)
     if recent_count >= daily_limit:
         retry_after = 3600
         raise HTTPException(
@@ -412,7 +564,7 @@ def accept_challenge(
     if ch.mode != bp_b.mode:
         raise HTTPException(status_code=400, detail="Challenge mode mismatch")
 
-    settings = Settings()
+    is_new_match = False
     if db.get(Match, match_id) is None:
         match = Match(
             id=match_id,
@@ -439,7 +591,16 @@ def accept_challenge(
             finished_at=None,
         )
         db.add(match)
-        db.commit()
+        try:
+            db.commit()
+            is_new_match = True
+        except IntegrityError:
+            # Concurrent accept (e.g., double-invoked effect) can race on match insert.
+            try:
+                db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            is_new_match = False
 
     attempt = ChallengeAttempt(
         id=f"ca_{uuid4().hex}",
@@ -451,6 +612,8 @@ def accept_challenge(
         created_at=now,
     )
     db.add(attempt)
+
+    # Events (best-effort).
     try:
         ev = log_event(
             db,
@@ -497,7 +660,53 @@ def accept_challenge(
             pass
     except Exception:  # noqa: BLE001
         pass
-    db.commit()
+
+    if is_new_match:
+        try:
+            log_event(
+                db,
+                type="challenge_created",
+                user_id=user_id,
+                request=request,
+                payload={
+                    "source": source,
+                    "match_id": str(match_id),
+                    "challenge_id": str(ch.id),
+                    "kind": str(getattr(ch, "kind", "") or ""),
+                    "replay_id": str(ch.target_replay_id or "") or None,
+                    "parent_replay_id": str(ch.target_replay_id or "") or None,
+                    "attacker_bp": str(blueprint_a_id or "") or None,
+                    "defender_bp": str(bp_b.id),
+                },
+                now=now,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    try:
+        db.commit()
+    except (IntegrityError, PendingRollbackError):
+        # Concurrent accept can also race on attempt insert; fall back to the latest.
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        recent = db.scalar(
+            select(ChallengeAttempt)
+            .where(ChallengeAttempt.challenge_id == ch.id)
+            .where(ChallengeAttempt.challenger_user_id == user_id)
+            .order_by(desc(ChallengeAttempt.created_at), desc(ChallengeAttempt.id))
+            .limit(1)
+        )
+        if recent and recent.match_id:
+            m = db.get(Match, str(recent.match_id))
+            if m and str(m.status or "") != "failed":
+                return ChallengeAcceptResponse(
+                    attempt_id=str(recent.id),
+                    match_id=str(recent.match_id),
+                    status="running" if str(m.status or "") == "running" else "queued",
+                )
+        raise
 
     if os.environ.get("NEUROLEAGUE_E2E_FAST") == "1":
         match = db.get(Match, match_id)
@@ -547,6 +756,91 @@ def accept_challenge(
 
     return ChallengeAcceptResponse(
         attempt_id=attempt.id, match_id=match_id, status="queued"
+    )
+
+
+@router.post("/{challenge_id}/accept", response_model=ChallengeAcceptResponse)
+def accept_challenge(
+    request: Request,
+    challenge_id: str,
+    req: ChallengeAcceptRequest,
+    user_id: str = CurrentUserId,
+    db: Session = DBSession,
+) -> ChallengeAcceptResponse:
+    ch = db.get(Challenge, challenge_id)
+    if not ch or ch.status != "active":
+        raise HTTPException(status_code=404, detail="Challenge not found")
+    return _accept_challenge_impl(
+        request=request,
+        ch=ch,
+        req=req,
+        user_id=user_id,
+        db=db,
+        source=None,
+    )
+
+
+class BeatClipRequest(BaseModel):
+    blueprint_id: str | None = None
+    seed_set_count: int = Field(default=1, ge=1, le=9)
+    source: str | None = Field(default=None, max_length=64)
+
+
+class BeatClipResponse(BaseModel):
+    challenge_id: str
+    attempt_id: str
+    match_id: str
+    status: Literal["queued", "running"]
+
+
+@router.post("/clip/{replay_id}/beat", response_model=BeatClipResponse)
+def beat_clip(
+    request: Request,
+    replay_id: str,
+    req: BeatClipRequest,
+    user_id: str = CurrentUserId,
+    db: Session = DBSession,
+) -> BeatClipResponse:
+    ch = _get_or_create_clip_challenge(db, replay_id=replay_id, creator_user_id=user_id)
+
+    # Log the click intent here (the share landing itself is public/anonymous).
+    try:
+        log_event(
+            db,
+            type="beat_this_click",
+            user_id=user_id,
+            request=request,
+            payload={
+                "source": str(req.source or "unknown")[:64] if req.source else None,
+                "replay_id": str(replay_id),
+                "challenge_id": str(ch.id),
+                "target_blueprint_id": str(ch.target_blueprint_id or "") or None,
+                "blueprint_id": str(req.blueprint_id or "") or None,
+            },
+            now=datetime.now(UTC),
+        )
+        db.commit()
+    except Exception:  # noqa: BLE001
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+
+    accept = _accept_challenge_impl(
+        request=request,
+        ch=ch,
+        req=ChallengeAcceptRequest(
+            blueprint_id=req.blueprint_id, seed_set_count=req.seed_set_count
+        ),
+        user_id=user_id,
+        db=db,
+        source=req.source,
+    )
+    return BeatClipResponse(
+        challenge_id=str(ch.id),
+        attempt_id=accept.attempt_id,
+        match_id=accept.match_id,
+        status=accept.status,
     )
 
 

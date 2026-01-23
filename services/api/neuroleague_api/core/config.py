@@ -82,6 +82,16 @@ class Settings(BaseSettings):
     rate_limit_challenge_accept_per_minute_ip: int = 40
     rate_limit_challenge_accept_per_hour_ip: int = 800
 
+    # Guests can be created freely via /start deep links, so keep Beat/Challenge tighter.
+    rate_limit_guest_challenge_accept_per_minute: int = 4
+    rate_limit_guest_challenge_accept_per_hour: int = 40
+    rate_limit_guest_challenge_accept_per_minute_ip: int = 10
+    rate_limit_guest_challenge_accept_per_hour_ip: int = 120
+    rate_limit_guest_challenge_accept_per_minute_device: int = 4
+    rate_limit_guest_challenge_accept_per_hour_device: int = 40
+
+    challenge_accept_dedupe_window_sec: int = 8
+
     admin_token: str | None = None
 
     referral_ip_credit_limit_per_day: int = 3

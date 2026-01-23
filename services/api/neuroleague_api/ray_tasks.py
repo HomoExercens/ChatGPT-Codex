@@ -407,6 +407,49 @@ def ranked_match_job(
                         apply_event_to_quests(session, event=ev_match)
                     except Exception:  # noqa: BLE001
                         pass
+
+                    # Reply-chain: if this challenge targeted a clip, emit reply_clip_created.
+                    try:
+                        from sqlalchemy import desc, select
+
+                        from neuroleague_api.models import Challenge, ChallengeAttempt
+
+                        ca = session.scalar(
+                            select(ChallengeAttempt)
+                            .where(ChallengeAttempt.match_id == match_id)
+                            .order_by(
+                                desc(ChallengeAttempt.created_at), desc(ChallengeAttempt.id)
+                            )
+                            .limit(1)
+                        )
+                        ch = (
+                            session.get(Challenge, str(ca.challenge_id))
+                            if ca and ca.challenge_id
+                            else None
+                        )
+                        parent_replay_id = (
+                            str(getattr(ch, "target_replay_id", "") or "") if ch else ""
+                        )
+                        if parent_replay_id:
+                            log_event(
+                                session,
+                                type="reply_clip_created",
+                                user_id=user_a_id,
+                                request=None,
+                                payload={
+                                    "match_id": match_id,
+                                    "challenge_id": str(getattr(ch, "id", "") or ""),
+                                    "attempt_id": str(getattr(ca, "id", "") or "")
+                                    if ca
+                                    else None,
+                                    "replay_id": parent_replay_id,
+                                    "parent_replay_id": parent_replay_id,
+                                    "reply_replay_id": replay_id,
+                                },
+                                now=now,
+                            )
+                    except Exception:  # noqa: BLE001
+                        pass
             except Exception:  # noqa: BLE001
                 pass
 

@@ -24,7 +24,16 @@ from neuroleague_api.eventlog import (
     user_agent_hash_from_request,
 )
 from neuroleague_api.experiments import assign_experiment
-from neuroleague_api.models import Blueprint, Challenge, Match, Rating, Replay, User
+from neuroleague_api.models import (
+    Blueprint,
+    Challenge,
+    ChallengeAttempt,
+    ClipLike,
+    Match,
+    Rating,
+    Replay,
+    User,
+)
 from neuroleague_api.share_caption import (
     SHARE_CAPTION_VERSION,
     build_share_caption,
@@ -36,7 +45,7 @@ from neuroleague_api.storage import ensure_artifacts_dir, load_replay_json
 from neuroleague_api.storage_backend import get_storage_backend
 
 from neuroleague_sim.models import BlueprintSpec
-from sqlalchemy import desc, select
+from sqlalchemy import case, desc, func, select
 
 
 router = APIRouter(prefix="/s", tags=["share"])
@@ -888,6 +897,7 @@ def clip_landing(
     cta_order_variant: str = "beat_then_remix"
     remix_cta_variant: str = "control"
     remix_cta_label: str = "Fork & Remix"
+    replies: list[dict[str, Any]] = []
 
     with SessionLocal() as db:  # independent session; share pages are public
         replay = db.get(Replay, replay_id)
@@ -946,6 +956,110 @@ def clip_landing(
                 challenge_id = str(ch.id)
         except Exception:  # noqa: BLE001
             challenge_id = None
+
+        # Replies (challenge attempts that produced a done match + replay).
+        try:
+            likes_subq = (
+                select(
+                    ClipLike.replay_id.label("replay_id"),
+                    func.count(ClipLike.user_id).label("likes"),
+                )
+                .group_by(ClipLike.replay_id)
+                .subquery()
+            )
+            rows = db.execute(
+                select(
+                    ChallengeAttempt.challenger_user_id,
+                    Match.result,
+                    Match.finished_at,
+                    Match.created_at,
+                    Match.blueprint_a_id,
+                    Replay.id.label("reply_replay_id"),
+                    func.coalesce(likes_subq.c.likes, 0).label("likes"),
+                )
+                .join(Challenge, Challenge.id == ChallengeAttempt.challenge_id)
+                .join(Match, Match.id == ChallengeAttempt.match_id)
+                .join(Replay, Replay.match_id == Match.id)
+                .outerjoin(likes_subq, likes_subq.c.replay_id == Replay.id)
+                .where(Challenge.kind == "clip")
+                .where(Challenge.target_replay_id == replay_id)
+                .where(Match.status == "done")
+                .order_by(
+                    desc(case((Match.result == "A", 1), else_=0)),
+                    desc(func.coalesce(Match.finished_at, Match.created_at)),
+                    desc(func.coalesce(likes_subq.c.likes, 0)),
+                    desc(Match.created_at),
+                )
+                .limit(12)
+            ).all()
+
+            user_ids = sorted({str(uid) for uid, *_rest in rows if uid})
+            users = (
+                db.scalars(select(User).where(User.id.in_(user_ids))).all()
+                if user_ids
+                else []
+            )
+            user_by_id = {u.id: u for u in users}
+
+            bp_ids = sorted({str(bp) for _uid, _res, _fin, _cr, bp, _rr, _lk in rows if bp})
+            bps = (
+                db.scalars(select(Blueprint).where(Blueprint.id.in_(bp_ids))).all()
+                if bp_ids
+                else []
+            )
+            bp_by_id = {b.id: b for b in bps}
+
+            # Fetch parents/roots for lineage summary (best-effort).
+            extra_ids: set[str] = set()
+            for b in bps:
+                if b.forked_from_id:
+                    extra_ids.add(str(b.forked_from_id))
+                if b.fork_root_blueprint_id:
+                    extra_ids.add(str(b.fork_root_blueprint_id))
+            extra_ids.difference_update(bp_by_id.keys())
+            if extra_ids:
+                extras = db.scalars(select(Blueprint).where(Blueprint.id.in_(sorted(extra_ids)))).all()
+                for b in extras:
+                    bp_by_id[b.id] = b
+
+            out: list[dict[str, Any]] = []
+            for uid, res, finished_at, created_at, bp_a_id, reply_rid, likes in rows:
+                reply_id = str(reply_rid or "")
+                if not reply_id:
+                    continue
+                winner = str(res or "")
+                outcome = "win" if winner == "A" else "loss" if winner == "B" else "draw"
+                u = user_by_id.get(str(uid))
+                bp = bp_by_id.get(str(bp_a_id or "")) if bp_a_id else None
+                parent_bp = bp_by_id.get(str(bp.forked_from_id)) if (bp and bp.forked_from_id) else None
+                root_bp = (
+                    bp_by_id.get(str(bp.fork_root_blueprint_id))
+                    if (bp and bp.fork_root_blueprint_id)
+                    else None
+                )
+                out.append(
+                    {
+                        "reply_replay_id": reply_id,
+                        "challenger_user_id": str(uid or ""),
+                        "challenger_display_name": (u.display_name if u else None),
+                        "outcome": outcome,
+                        "finished_at": finished_at,
+                        "created_at": created_at,
+                        "likes": int(likes or 0),
+                        "blueprint_id": str(bp.id) if bp else None,
+                        "blueprint_name": (bp.name if bp else None),
+                        "fork_depth": int(getattr(bp, "fork_depth", 0) or 0) if bp else 0,
+                        "forked_from_id": str(bp.forked_from_id) if (bp and bp.forked_from_id) else None,
+                        "forked_from_name": (parent_bp.name if parent_bp else None),
+                        "fork_root_id": str(bp.fork_root_blueprint_id)
+                        if (bp and bp.fork_root_blueprint_id)
+                        else None,
+                        "fork_root_name": (root_bp.name if root_bp else None),
+                    }
+                )
+            replies = out
+        except Exception:  # noqa: BLE001
+            replies = []
 
         anon_id: str | None = None
         try:
@@ -1153,16 +1267,17 @@ def clip_landing(
         ctpl=forced_template_id,
     )
 
-    beat_url = app_url
-    if challenge_id:
-        beat_url = _start_href(
-            next_path=f"/challenge/{quote(challenge_id, safe='')}",
-            ref=ref,
-            src="s/clip_beat",
-            lenv=clip_len_variant,
-            cv=forced_captions_version,
-            ctpl=forced_template_id,
-        )
+    beat_url = _start_href(
+        next_path=(
+            f"/beat?replay_id={quote(replay_id, safe='')}"
+            f"&src=share_landing"
+        ),
+        ref=ref,
+        src="s/clip_beat",
+        lenv=clip_len_variant,
+        cv=forced_captions_version,
+        ctpl=forced_template_id,
+    )
 
     title = f"NeuroLeague Clip — {match_id}"
     if top_title:
@@ -1418,6 +1533,45 @@ def clip_landing(
       }}
       .kitcol {{ flex: 1; min-width: 0; }}
       .kitlabel {{ font-size: 12px; color: var(--muted); margin: 0 0 8px; }}
+      .replies {{ margin-top: 18px; }}
+      .replies h2 {{ margin: 0; font-size: 15px; letter-spacing: .02em; }}
+      .replies-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: 12px;
+        margin-top: 12px;
+      }}
+      .reply-card {{
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        overflow: hidden;
+        background: rgba(2,6,23,.35);
+        text-decoration: none;
+        color: inherit;
+        display: block;
+      }}
+      .reply-card:hover {{ border-color: rgba(255,255,255,.22); }}
+      .reply-thumb {{
+        width: 100%;
+        aspect-ratio: 16/9;
+        object-fit: cover;
+        display: block;
+        background: rgba(15,23,42,.7);
+      }}
+      .reply-meta {{ padding: 10px 10px 12px; }}
+      .pill {{
+        display: inline-block;
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        margin-right: 8px;
+      }}
+      .pill.win {{ background: rgba(34,197,94,.16); }}
+      .pill.loss {{ background: rgba(239,68,68,.16); }}
+      .pill.draw {{ background: rgba(148,163,184,.12); }}
+      .reply-line {{ font-size: 12px; color: var(--text); margin: 6px 0 0; }}
+      .reply-sub {{ font-size: 11px; color: var(--muted); margin: 6px 0 0; }}
     </style>
   </head>
   <body>
@@ -1459,6 +1613,42 @@ def clip_landing(
           </div>
           <div id="copy-status" class="meta"></div>
           <div class="tiny">share: <code>{html.escape(og_url)}</code></div>
+          <div class="card replies">
+            <h2>Replies</h2>
+            <div class="tiny">{len(replies)} reply clip(s) · win &gt; recent &gt; reactions</div>
+            <div class="replies-grid">
+              {(
+                ''.join(
+                  (
+                    '<a class="reply-card" href="/s/clip/' + html.escape(str(r.get("reply_replay_id") or "")) + '">'
+                    '<img class="reply-thumb" src="/s/clip/' + html.escape(str(r.get("reply_replay_id") or "")) + '/thumb.png" alt="Reply thumbnail" />'
+                    '<div class="reply-meta">'
+                    + (
+                      '<span class="pill win">WIN</span>'
+                      if r.get("outcome") == "win"
+                      else '<span class="pill loss">LOSS</span>'
+                      if r.get("outcome") == "loss"
+                      else '<span class="pill draw">DRAW</span>'
+                    )
+                    + '<span class="tiny">' + html.escape(str(r.get("challenger_display_name") or "Guest")) + '</span>'
+                    + '<div class="reply-line"><strong>'
+                    + html.escape(str(r.get("blueprint_name") or "Starter Build"))
+                    + '</strong></div>'
+                    + (
+                      '<div class="reply-sub">fork depth ' + html.escape(str(int(r.get("fork_depth") or 0))) + '</div>'
+                      if int(r.get("fork_depth") or 0) > 0
+                      else '<div class="reply-sub">fork depth 0</div>'
+                    )
+                    + '<div class="reply-sub">likes ' + html.escape(str(int(r.get("likes") or 0))) + '</div>'
+                    '</div></a>'
+                  )
+                  for r in replies
+                )
+                if replies
+                else '<div class="tiny">No replies yet. Be the first to Beat This.</div>'
+              )}
+            </div>
+          </div>
           <script>
             const SHARE_SOURCE = "s/clip";
             const SHARE_REF = "{html.escape(str(ref or ""))}";

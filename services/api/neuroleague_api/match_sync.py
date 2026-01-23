@@ -5,11 +5,12 @@ from typing import Any, Literal
 from uuid import uuid4
 
 import orjson
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from neuroleague_api.elo import update_elo
 from neuroleague_api.eventlog import log_event
-from neuroleague_api.models import Match, Rating, Replay
+from neuroleague_api.models import Challenge, ChallengeAttempt, Match, Rating, Replay
 from neuroleague_api.storage import save_replay_json
 from neuroleague_sim.models import BlueprintSpec
 from neuroleague_sim.modifiers import select_match_modifiers
@@ -227,9 +228,50 @@ def run_match_sync(
                 },
                 now=now,
             )
+            log_event(
+                db,
+                type="match_done",
+                user_id=str(user_a_id),
+                request=None,
+                payload={
+                    "match_id": str(match.id),
+                    "queue_type": "challenge",
+                    "mode": str(mode or ""),
+                    "result": str(result),
+                },
+                now=now,
+            )
+
+            # Reply-chain: if this challenge targeted a clip, emit reply_clip_created.
+            try:
+                ca = db.scalar(
+                    select(ChallengeAttempt)
+                    .where(ChallengeAttempt.match_id == str(match.id))
+                    .order_by(desc(ChallengeAttempt.created_at), desc(ChallengeAttempt.id))
+                    .limit(1)
+                )
+                ch = db.get(Challenge, str(getattr(ca, "challenge_id", "") or "")) if ca else None
+                parent_replay_id = str(getattr(ch, "target_replay_id", "") or "") if ch else ""
+                if parent_replay_id:
+                    log_event(
+                        db,
+                        type="reply_clip_created",
+                        user_id=str(user_a_id),
+                        request=None,
+                        payload={
+                            "match_id": str(match.id),
+                            "challenge_id": str(getattr(ch, "id", "") or ""),
+                            "attempt_id": str(getattr(ca, "id", "") or "") if ca else None,
+                            "replay_id": parent_replay_id,
+                            "parent_replay_id": parent_replay_id,
+                            "reply_replay_id": str(replay_id),
+                        },
+                        now=now,
+                    )
+            except Exception:  # noqa: BLE001
+                pass
     except Exception:  # noqa: BLE001
         pass
 
     db.commit()
     return replay_id
-

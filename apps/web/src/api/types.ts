@@ -271,6 +271,14 @@ export type MatchDetail = {
     tags: string[];
   }>;
   error_message?: string | null;
+  challenge?: {
+    challenge_id: string;
+    kind?: string | null;
+    target_replay_id?: string | null;
+    target_blueprint_id?: string | null;
+    attempt_id?: string | null;
+    attempt_index?: number | null;
+  } | null;
 };
 
 export type ReplayUnit = {

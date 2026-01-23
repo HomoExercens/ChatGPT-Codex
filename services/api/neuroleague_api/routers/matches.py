@@ -17,6 +17,8 @@ from neuroleague_api.deps import CurrentUserId, DBSession
 from neuroleague_api.eventlog import log_event
 from neuroleague_api.models import (
     Blueprint,
+    Challenge,
+    ChallengeAttempt,
     Event,
     Match,
     Rating,
@@ -559,6 +561,14 @@ def list_matches(
 
 
 class MatchDetail(BaseModel):
+    class ChallengeContext(BaseModel):
+        challenge_id: str
+        kind: str | None = None
+        target_replay_id: str | None = None
+        target_blueprint_id: str | None = None
+        attempt_id: str | None = None
+        attempt_index: int | None = None
+
     id: str
     queue_type: str
     week_id: str | None = None
@@ -583,6 +593,7 @@ class MatchDetail(BaseModel):
     replay_id: str | None
     highlights: list[dict[str, Any]]
     error_message: str | None = None
+    challenge: ChallengeContext | None = None
 
 
 @router.get("/{match_id}", response_model=MatchDetail)
@@ -619,6 +630,28 @@ def match_detail(
         aug_b = orjson.loads(m.augments_b_json) if m.augments_b_json else []
     except Exception:  # noqa: BLE001
         aug_b = []
+
+    challenge_ctx: MatchDetail.ChallengeContext | None = None
+    if str(m_queue_type) == "challenge":
+        try:
+            ca = db.scalar(
+                select(ChallengeAttempt)
+                .where(ChallengeAttempt.match_id == match_id)
+                .order_by(desc(ChallengeAttempt.created_at), desc(ChallengeAttempt.id))
+                .limit(1)
+            )
+            ch = db.get(Challenge, str(getattr(ca, "challenge_id", "") or "")) if ca else None
+            if ch:
+                challenge_ctx = MatchDetail.ChallengeContext(
+                    challenge_id=str(ch.id),
+                    kind=str(getattr(ch, "kind", "") or "") or None,
+                    target_replay_id=str(getattr(ch, "target_replay_id", "") or "") or None,
+                    target_blueprint_id=str(getattr(ch, "target_blueprint_id", "") or "") or None,
+                    attempt_id=str(getattr(ca, "id", "") or "") if ca else None,
+                    attempt_index=int(getattr(ca, "attempt_index", 0) or 0) if ca else None,
+                )
+        except Exception:  # noqa: BLE001
+            challenge_ctx = None
     return MatchDetail(
         id=m.id,
         queue_type=m_queue_type,
@@ -646,6 +679,7 @@ def match_detail(
         replay_id=replay.id if replay else None,
         highlights=payload.get("highlights", []),
         error_message=m.error_message,
+        challenge=challenge_ctx,
     )
 
 

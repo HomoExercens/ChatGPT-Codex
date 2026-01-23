@@ -115,37 +115,6 @@ export const ClipsPage: React.FC = () => {
       }),
   });
 
-  const createChallengeMutation = useMutation({
-    mutationFn: async (item: ClipFeedItem) => {
-      const qRaw = item.share_url_vertical.split('?')[1] ?? '';
-      const q = new URLSearchParams(qRaw);
-      const start = Number.parseFloat(q.get('start') ?? '0') || 0.0;
-      const endVal = q.get('end');
-      const end = endVal != null ? Number.parseFloat(endVal) || undefined : undefined;
-
-      const created = await apiFetch<{ challenge_id: string; share_url: string }>('/api/challenges', {
-        method: 'POST',
-        body: JSON.stringify({
-          kind: 'clip',
-          target_replay_id: item.replay_id,
-          start,
-          end: end ?? null,
-        }),
-      });
-
-      const ref = me?.user_id;
-      const base = created.share_url;
-      const withRef = ref && !base.includes('ref=') ? `${base}${base.includes('?') ? '&' : '?'}ref=${encodeURIComponent(ref)}` : base;
-      const url = `${window.location.origin}${withRef}`;
-      try {
-        await navigator.clipboard.writeText(url);
-      } catch {
-        window.prompt('Copy share link', url);
-      }
-      return url;
-    },
-  });
-
   const ensureFork = async (item: ClipFeedItem): Promise<string> => {
     if (!item.blueprint_id) throw new Error('No blueprint attached to this clip');
     const existing = slideState[item.replay_id]?.forkedBlueprintId;
@@ -526,9 +495,8 @@ export const ClipsPage: React.FC = () => {
                         size="icon"
                         variant={shareCta === 'beat_this' ? 'primary' : 'secondary'}
                         className="pointer-events-auto rounded-full"
-                        onClick={() => createChallengeMutation.mutate(item)}
-                        aria-label="Beat This (create challenge link)"
-                        disabled={createChallengeMutation.isPending}
+                        onClick={() => navigate(`/beat?replay_id=${encodeURIComponent(item.replay_id)}&src=clip_view`)}
+                        aria-label="Beat This (challenge original)"
                       >
                         <Zap size={18} />
                       </Button>

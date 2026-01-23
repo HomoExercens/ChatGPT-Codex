@@ -27,6 +27,7 @@ import { QuickPage } from './pages/QuickPage';
 import { ReplayPage } from './pages/ReplayPage';
 import { ReplayHubPage } from './pages/ReplayHubPage';
 import { RemixPage } from './pages/RemixPage';
+import { BeatPage } from './pages/BeatPage';
 import { RankedPage } from './pages/RankedPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SocialPage } from './pages/SocialPage';
@@ -63,6 +64,7 @@ function App() {
       />
       <Route path="/start" element={<StartPage />} />
       <Route path="/remix" element={<RemixPage />} />
+      <Route path="/beat" element={<BeatPage />} />
 
       <Route
         element={

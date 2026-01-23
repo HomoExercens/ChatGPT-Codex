@@ -35,6 +35,11 @@ EventType = Literal[
     "fork_click",
     "fork_created",
     "lineage_viewed",
+    # Remix flywheel v2 (reply-chain).
+    "beat_this_click",
+    "challenge_created",
+    "reply_clip_created",
+    "reply_clip_shared",
     "blueprint_submit",
     "ranked_queue",
     "ranked_done",
