@@ -9,6 +9,8 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 3000,
+    // Needed for Cloudflare Quick Tunnel (Host header will be <random>.trycloudflare.com).
+    allowedHosts: ['.trycloudflare.com'],
     proxy: {
       '/api': proxyTarget,
       '/s/': proxyTarget,
