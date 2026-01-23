@@ -1,11 +1,15 @@
 {
   email {$CADDY_EMAIL}
+  # Set CADDY_ACME_CA to Let's Encrypt staging to avoid rate limits during rehearsal:
+  #   CADDY_ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory
+  # Default (prod): https://acme-v02.api.letsencrypt.org/directory
+  acme_ca {$CADDY_ACME_CA:https://acme-v02.api.letsencrypt.org/directory}
 }
 
 {$DEPLOY_DOMAIN:localhost} {
   encode gzip
 
-  @api path /api/* /docs* /openapi* /redoc*
+  @api path /api/* /docs* /openapi* /redoc* /.well-known/*
   reverse_proxy @api api:8000
 
   @share path /s/*

@@ -9,7 +9,19 @@ This runbook describes a “single VPS” deployment using `docker-compose.deplo
 - A domain (recommended) pointing to the VPS (`A` record)
 - Ports open: `80` and `443`
 
+## 0.5) Local prod-like rehearsal (optional)
+If you can run Docker locally, this is the fastest way to validate reverse-proxy + `/api` + `/s/*` behavior before touching a VPS.
+
+- `make prod-up`
+- Web: `http://localhost:8080`
+- API health: `http://localhost:8000/api/health`
+
+Tear down:
+- `make prod-down`
+
 ## 1) Configure env
+Secrets rules: `docs/SECRETS_AND_ENV.md`
+
 1) Copy the template:
 - `cp .env.deploy.example .env.deploy`
 
@@ -20,6 +32,14 @@ This runbook describes a “single VPS” deployment using `docker-compose.deplo
 - `POSTGRES_PASSWORD=<strong-password>`
 - `MINIO_ROOT_PASSWORD=<strong-password>`
 - (Recommended for demos) `NEUROLEAGUE_SEED_ON_BOOT=1` — seed stable demo content + `ops/demo_ids.json` (idempotent)
+
+### 1.5) TLS staging first (recommended)
+Let’s Encrypt has rate limits. For the first boot / rehearsal:
+- Set in `.env.deploy`:
+  - `CADDY_ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory`
+- Boot and verify everything works on staging certs.
+- Before going live:
+  - Remove `CADDY_ACME_CA` (or set to the production directory) and reboot.
 
 ## 2) Boot
 - `docker compose -f docker-compose.deploy.yml --env-file .env.deploy up -d --build`
@@ -78,4 +98,19 @@ Rollback (example):
    - Render jobs queued/running not exploding
 
 ## 6) Backup / Restore
-See `scripts/backup_pg_to_s3.sh` and `scripts/restore_pg_from_s3.sh` (MinIO/S3 compatible).
+The deploy stack includes a `backup` service that periodically runs `pg_dump` and uploads to MinIO/S3.
+
+Manual backup (run once):
+- `docker compose -f docker-compose.deploy.yml --env-file .env.deploy exec -T backup /app/scripts/backup_pg_to_s3.sh`
+
+Restore the latest backup (DANGER: overwrites DB):
+- `docker compose -f docker-compose.deploy.yml --env-file .env.deploy exec -T backup /app/scripts/restore_pg_from_s3.sh`
+
+Restore a specific key:
+- `docker compose -f docker-compose.deploy.yml --env-file .env.deploy exec -T backup /app/scripts/restore_pg_from_s3.sh backups/pg/<key>.dump`
+
+## 7) Ops monitoring checklist (minimum)
+- Errors: 5xx rate, 429 rate
+- Render: `render_jobs` backlog/latency
+- Growth: `reply_clip_shared`, `reaction_click`, `notification_opened`, `remix_v3` funnel
+- Storage: MinIO/S3 errors, backup freshness (`ops/last_backup.json`)

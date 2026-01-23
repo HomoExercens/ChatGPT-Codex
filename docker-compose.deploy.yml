@@ -1,6 +1,7 @@
 services:
   caddy:
     image: caddy:2-alpine
+    restart: unless-stopped
     depends_on:
       - web
       - api
@@ -17,6 +18,7 @@ services:
 
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-neuroleague}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-neuroleague}
@@ -31,6 +33,7 @@ services:
 
   minio:
     image: minio/minio:latest
+    restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
@@ -63,6 +66,7 @@ services:
     build:
       context: .
       dockerfile: services/api/Dockerfile
+    restart: unless-stopped
     command: ["bash", "-lc", "ray start --head --port=6379 --dashboard-host=0.0.0.0 --dashboard-port=8265 --block"]
     environment:
       CUDA_VISIBLE_DEVICES: ""
@@ -71,6 +75,7 @@ services:
     build:
       context: .
       dockerfile: services/api/Dockerfile
+    restart: unless-stopped
     command: ["bash", "-lc", "ray start --address=rayhead:6379 --block"]
     depends_on:
       db:
@@ -95,6 +100,7 @@ services:
     build:
       context: .
       dockerfile: services/api/Dockerfile
+    restart: unless-stopped
     command: ["bash", "-lc", "python -m neuroleague_api.scheduler_main"]
     depends_on:
       db:
@@ -119,6 +125,7 @@ services:
     build:
       context: .
       dockerfile: deploy/backup.Dockerfile
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
@@ -140,6 +147,7 @@ services:
     build:
       context: .
       dockerfile: services/api/Dockerfile
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
@@ -184,6 +192,7 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile.prod
+    restart: unless-stopped
     depends_on:
       api:
         condition: service_healthy

@@ -77,7 +77,7 @@ if [[ -z "${KEY}" ]]; then
 fi
 
 echo "restore: downloading s3://${BUCKET}/${KEY}" >&2
-python3 - "${tmp}" <<'PY'
+python3 - "${tmp}" "${KEY}" <<'PY'
 from __future__ import annotations
 
 import os
@@ -87,16 +87,14 @@ import boto3  # type: ignore
 
 out_path = sys.argv[1]
 bucket = os.environ["NEUROLEAGUE_STORAGE_S3_BUCKET"]
-key = os.environ["BACKUP_KEY"]
+key = sys.argv[2]
 endpoint_url = os.environ.get("NEUROLEAGUE_STORAGE_S3_ENDPOINT_URL") or None
 region = os.environ.get("NEUROLEAGUE_STORAGE_S3_REGION") or None
 
 client = boto3.client("s3", region_name=region, endpoint_url=endpoint_url)
 client.download_file(bucket, key, out_path)
 PY
-BACKUP_KEY="${KEY}"
 
 echo "restore: pg_restore into ${PG_URL}" >&2
 pg_restore --clean --if-exists --no-owner --no-privileges --dbname "${PG_URL}" "${tmp}"
 echo "restore: done" >&2
-
