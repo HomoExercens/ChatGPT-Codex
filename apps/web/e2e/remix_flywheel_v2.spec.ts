@@ -24,6 +24,12 @@ test('share landing Beat This → Replay shows Reply share CTA, and Replies appe
   await page.waitForURL('**/replay/**', { timeout: 180_000 });
   await expect(page.getByRole('button', { name: 'Share Reply Clip' }).first()).toBeVisible({ timeout: 60_000 });
   await expect(page.getByRole('link', { name: 'View Original' }).first()).toBeVisible({ timeout: 60_000 });
+  const outcome = page.getByTestId('reply-result-outcome').first();
+  await expect(outcome).toBeVisible({ timeout: 60_000 });
+  const outcomeText = ((await outcome.textContent()) || '').trim();
+  if (outcomeText === 'LOSE') {
+    await expect(page.getByRole('button', { name: /Auto Tune/i }).first()).toBeVisible({ timeout: 60_000 });
+  }
 
   // v3: reactions on reply clip.
   const upReaction = page.getByRole('button', { name: /👍/ }).first();

@@ -5,7 +5,7 @@ import { Heart, MessageCircle, Share2, Sparkles, Volume2, VolumeX, Wand2, Zap } 
 
 import { CreatureSilhouettes } from '../components/CreatureSilhouettes';
 import { Badge, BottomSheet, Button } from '../components/ui';
-import type { ClipEventResponse, ClipFeedItem, ClipFeedOut, Mode, RepliesResponse } from '../api/types';
+import type { ClipEventResponse, ClipFeedItem, ClipFeedOut, Mode, RepliesResponse, Replay } from '../api/types';
 import { apiFetch } from '../lib/api';
 import { getExperimentVariant, useExperiments } from '../lib/experiments';
 import { tapJuice } from '../lib/juice';
@@ -17,6 +17,7 @@ import { useSettingsStore } from '../stores/settings';
 type SlideState = {
   liked?: boolean;
   likes?: number;
+  videoReady?: boolean;
 };
 
 type ClipShareUrlOut = {
@@ -30,6 +31,165 @@ type ClipShareUrlOut = {
 
 const clampIndex = (idx: number, total: number) => Math.max(0, Math.min(total - 1, idx));
 const FTUE_KEY = 'neuroleague.ftue.play.v1.dismissed';
+const TICKS_PER_SEC = 20;
+
+type HudOutcome = 'win' | 'loss' | 'draw';
+type ClipHudMoment =
+  | { kind: 'kill' | 'crit' | 'synergy'; atSec: number }
+  | { kind: 'damage'; atSec: number; amount: number; crit: boolean };
+
+type ClipHudData = {
+  outcome: HudOutcome;
+  winnerHpPct: number | null;
+  hasKill: boolean;
+  hasCrit: boolean;
+  hasSynergy: boolean;
+  moments: ClipHudMoment[];
+};
+
+type DamageFloat = {
+  id: string;
+  amount: number;
+  crit: boolean;
+  x: number;
+  y: number;
+};
+
+function clamp01(n: number): number {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
+function parseClipRangeFromShareUrl(shareUrl: string | null | undefined): { startTick: number; endTick: number } | null {
+  const raw = (shareUrl || '').trim();
+  if (!raw) return null;
+  if (typeof window === 'undefined') return null;
+  try {
+    const u = new URL(raw, window.location.origin);
+    const s = Number.parseFloat((u.searchParams.get('start') || '').trim());
+    const e = Number.parseFloat((u.searchParams.get('end') || '').trim());
+    if (!Number.isFinite(s) || !Number.isFinite(e)) return null;
+    const startTick = Math.max(0, Math.round(s * TICKS_PER_SEC));
+    const endTick = Math.max(startTick, Math.round(e * TICKS_PER_SEC));
+    return { startTick, endTick };
+  } catch {
+    return null;
+  }
+}
+
+function hashU32(s: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function offsetForDamage(replayId: string, idx: number): { x: number; y: number } {
+  const h = hashU32(`${replayId}:${idx}:dmg`);
+  const x = ((h & 0xff) / 255) * 2 - 1;
+  const y = (((h >> 8) & 0xff) / 255) * 2 - 1;
+  return { x: Math.round(x * 44), y: Math.round(y * 24) };
+}
+
+function buildClipHudData(params: {
+  clip: ClipFeedItem;
+  replay: Replay;
+}): ClipHudData | null {
+  const { clip, replay } = params;
+  const range = parseClipRangeFromShareUrl(clip.share_url_vertical);
+  if (!range) return null;
+
+  const units = (replay.header.units ?? []) as Array<{ team: 'A' | 'B'; max_hp: number }>;
+  const maxHpA = units.filter((u) => u.team === 'A').reduce((acc, u) => acc + Number(u.max_hp || 0), 0);
+  const maxHpB = units.filter((u) => u.team === 'B').reduce((acc, u) => acc + Number(u.max_hp || 0), 0);
+  const end = replay.end_summary;
+  const winner = end?.winner;
+  const outcome: HudOutcome = winner === 'A' ? 'win' : winner === 'B' ? 'loss' : 'draw';
+
+  const winnerHp = winner === 'A' ? Number(end.hp_a || 0) : winner === 'B' ? Number(end.hp_b || 0) : 0;
+  const winnerMax = winner === 'A' ? maxHpA : winner === 'B' ? maxHpB : 0;
+  const winnerHpPct = winnerMax > 0 ? clamp01(winnerHp / winnerMax) : null;
+
+  const startTick = range.startTick;
+  const endTick = range.endTick;
+  const segLenSec = Math.max(0.01, (endTick - startTick) / TICKS_PER_SEC);
+
+  const tags = (clip.tags ?? []).map((t) => String(t).toLowerCase());
+  const hasSynergy = tags.some((t) => t.includes('synergy'));
+
+  const attackCritByKey = new Map<string, boolean>();
+  const deathTicks = new Set<number>();
+  let hasCrit = false;
+  let hasKill = false;
+
+  type RawDamage = { t: number; atSec: number; amount: number; crit: boolean };
+  const damages: RawDamage[] = [];
+
+  for (const ev of replay.timeline_events ?? []) {
+    const t = Number((ev as any).t ?? -1);
+    if (!Number.isFinite(t) || t < startTick || t > endTick) continue;
+    const type = String((ev as any).type ?? '');
+    const payload = ((ev as any).payload ?? {}) as Record<string, unknown>;
+
+    if (type === 'ATTACK') {
+      const source = String(payload.source ?? '');
+      const target = String(payload.target ?? '');
+      const crit = Boolean(payload.crit);
+      const key = `${t}:${source}:${target}`;
+      attackCritByKey.set(key, crit);
+      if (crit) hasCrit = true;
+    }
+    if (type === 'DEATH') {
+      deathTicks.add(t);
+      hasKill = true;
+    }
+    if (type === 'DAMAGE') {
+      const source = String(payload.source ?? '');
+      const target = String(payload.target ?? '');
+      const amount = Number(payload.amount ?? 0);
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+      const key = `${t}:${source}:${target}`;
+      const crit = Boolean(attackCritByKey.get(key));
+      if (crit) hasCrit = true;
+      damages.push({ t, atSec: (t - startTick) / TICKS_PER_SEC, amount: Math.round(amount), crit });
+    }
+  }
+
+  const topDamage = damages
+    .slice()
+    .sort((a, b) => (b.amount ?? 0) - (a.amount ?? 0) || a.t - b.t)
+    .slice(0, 6)
+    .sort((a, b) => a.t - b.t);
+
+  const moments: ClipHudMoment[] = [];
+
+  // A single always-visible "SYNERGY" cue if tags suggest it.
+  if (hasSynergy) {
+    moments.push({ kind: 'synergy', atSec: Math.min(0.6, Math.max(0.2, segLenSec * 0.18)) });
+  }
+
+  // First CRIT / KILL badge timing (earliest in segment).
+  const firstCrit = damages.find((d) => d.crit);
+  if (firstCrit) moments.push({ kind: 'crit', atSec: clamp01(firstCrit.atSec / segLenSec) * segLenSec });
+
+  const killTick = Array.from(deathTicks.values()).sort((a, b) => a - b)[0];
+  if (Number.isFinite(killTick)) {
+    const atSec = (killTick - startTick) / TICKS_PER_SEC;
+    moments.push({ kind: 'kill', atSec: Math.max(0, Math.min(segLenSec - 0.05, atSec)) });
+  }
+
+  for (const d of topDamage) {
+    const atSec = Math.max(0, Math.min(segLenSec - 0.02, d.atSec));
+    moments.push({ kind: 'damage', atSec, amount: d.amount, crit: d.crit });
+  }
+
+  // Deterministic trigger order.
+  moments.sort((a, b) => a.atSec - b.atSec || a.kind.localeCompare(b.kind));
+
+  return { outcome, winnerHpPct, hasKill, hasCrit, hasSynergy, moments };
+}
 
 export const ClipsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -97,6 +257,7 @@ export const ClipsPage: React.FC = () => {
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRefs = useRef<Array<HTMLVideoElement | null>>([]);
+  const shakeRefs = useRef<Array<HTMLDivElement | null>>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const activeClip = useMemo(() => clips[activeIndex] ?? null, [activeIndex, clips]);
   const viewed = useRef<Set<string>>(new Set());
@@ -108,6 +269,61 @@ export const ClipsPage: React.FC = () => {
   const [quickRemixOpen, setQuickRemixOpen] = useState(false);
   const [repliesOpen, setRepliesOpen] = useState(false);
   const [repliesTab, setRepliesTab] = useState<'top' | 'recent'>('top');
+
+  const [hudMatchId, setHudMatchId] = useState<string | null>(null);
+  const hudTargetMatchId = activeClip?.match_id ?? null;
+  useEffect(() => {
+    if (!hudTargetMatchId) {
+      setHudMatchId(null);
+      return;
+    }
+    const handle = window.setTimeout(() => setHudMatchId(hudTargetMatchId), 180);
+    return () => window.clearTimeout(handle);
+  }, [hudTargetMatchId]);
+
+  const { data: hudReplay } = useQuery({
+    queryKey: ['playHudReplay', hudMatchId],
+    queryFn: () => apiFetch<Replay>(`/api/matches/${encodeURIComponent(hudMatchId!)}/replay`),
+    enabled: Boolean(hudMatchId),
+    staleTime: 60_000,
+  });
+
+  const activeHud: ClipHudData | null = useMemo(() => {
+    if (!activeClip || !hudReplay) return null;
+    try {
+      return buildClipHudData({ clip: activeClip, replay: hudReplay });
+    } catch {
+      return null;
+    }
+  }, [activeClip, hudReplay]);
+
+  const hudRuntime = useRef<{
+    replayId: string;
+    moments: ClipHudMoment[];
+    fired: Set<number>;
+    lastTime: number;
+  } | null>(null);
+  const [hudFlash, setHudFlash] = useState<{ id: string; label: string; tone: 'kill' | 'crit' | 'synergy' } | null>(null);
+  const [damageFloats, setDamageFloats] = useState<DamageFloat[]>([]);
+  const fxCounter = useRef(0);
+  const juiceLockUntil = useRef<number>(0);
+
+  useEffect(() => {
+    if (!activeClip?.replay_id || !activeHud) {
+      hudRuntime.current = null;
+      setHudFlash(null);
+      setDamageFloats([]);
+      return;
+    }
+    hudRuntime.current = {
+      replayId: activeClip.replay_id,
+      moments: activeHud.moments,
+      fired: new Set<number>(),
+      lastTime: 0,
+    };
+    setHudFlash(null);
+    setDamageFloats([]);
+  }, [activeClip?.replay_id, activeHud?.moments]);
 
   const { data: repliesData, isFetching: repliesFetching, error: repliesError } = useQuery({
     queryKey: ['clipReplies', activeClip?.replay_id, repliesTab],
@@ -301,6 +517,98 @@ export const ClipsPage: React.FC = () => {
 
   const title = nav.play ?? (lang === 'ko' ? '플레이' : 'Play');
 
+  const triggerShake = (ms: number) => {
+    const el = shakeRefs.current[activeIndex];
+    if (!el) return;
+    el.classList.remove('nl-shake');
+    // Force reflow to restart animation.
+    void el.offsetWidth;
+    el.classList.add('nl-shake');
+    window.setTimeout(() => el.classList.remove('nl-shake'), ms);
+  };
+
+  const triggerHitStop = (video: HTMLVideoElement, ms: number, slowmo?: { rate: number; ms: number }) => {
+    if (reduceMotion) return;
+    const now = Date.now();
+    if (now < juiceLockUntil.current) return;
+    juiceLockUntil.current = now + ms + (slowmo?.ms ?? 0) + 80;
+
+    const originalRate = video.playbackRate || 1;
+    const resume = () => {
+      if (slowmo) {
+        video.playbackRate = slowmo.rate;
+        window.setTimeout(() => {
+          try {
+            video.playbackRate = originalRate;
+          } catch {
+            // ignore
+          }
+        }, slowmo.ms);
+      }
+      video.play().catch(() => {
+        // ignore
+      });
+    };
+
+    try {
+      video.pause();
+    } catch {
+      // ignore
+    }
+    window.setTimeout(resume, ms);
+  };
+
+  const handleHudTime = (video: HTMLVideoElement, replayId: string) => {
+    const rt = hudRuntime.current;
+    if (!rt || rt.replayId !== replayId) return;
+    const t = video.currentTime;
+    if (!Number.isFinite(t)) return;
+
+    // Reset triggers on loop.
+    if (t + 0.1 < rt.lastTime) {
+      rt.fired.clear();
+      setHudFlash(null);
+      setDamageFloats([]);
+    }
+    rt.lastTime = t;
+
+    for (let i = 0; i < rt.moments.length; i++) {
+      if (rt.fired.has(i)) continue;
+      const m = rt.moments[i];
+      if (t + 0.04 < m.atSec) continue;
+      rt.fired.add(i);
+
+      if (m.kind === 'damage') {
+        const id = `dmg_${fxCounter.current++}`;
+        const off = offsetForDamage(replayId, i);
+        setDamageFloats((prev) => [...prev, { id, amount: m.amount, crit: m.crit, x: off.x, y: off.y }].slice(-10));
+        window.setTimeout(() => {
+          setDamageFloats((prev) => prev.filter((d) => d.id !== id));
+        }, 900);
+        continue;
+      }
+
+      const flashId = `flash_${fxCounter.current++}`;
+      const tone = m.kind === 'kill' ? 'kill' : m.kind === 'crit' ? 'crit' : 'synergy';
+      setHudFlash({ id: flashId, label: m.kind.toUpperCase(), tone });
+      window.setTimeout(() => {
+        setHudFlash((prev) => (prev?.id === flashId ? null : prev));
+      }, 700);
+
+      if (reduceMotion) continue;
+      if (m.kind === 'kill') {
+        triggerShake(340);
+        triggerHitStop(video, 70, { rate: 0.72, ms: 240 });
+      } else if (m.kind === 'crit') {
+        triggerShake(240);
+        triggerHitStop(video, 50, { rate: 0.86, ms: 160 });
+      } else if (m.kind === 'synergy') {
+        triggerShake(180);
+        triggerHitStop(video, 30, { rate: 0.9, ms: 120 });
+      }
+    }
+  };
+
   return (
     <>
       <div className="relative h-[calc(100dvh-var(--nl-tabbar-h)-env(safe-area-inset-bottom))] bg-black overflow-hidden">
@@ -325,6 +633,19 @@ export const ClipsPage: React.FC = () => {
                 setSoundEnabled(next);
                 tapJuice();
                 toast.info(next ? (lang === 'ko' ? '사운드 ON' : 'Sound on') : lang === 'ko' ? '사운드 OFF' : 'Sound off');
+                const v = videoRefs.current[activeIndex];
+                if (v) {
+                  try {
+                    v.muted = !next;
+                  } catch {
+                    // ignore
+                  }
+                  if (next && v.paused) {
+                    v.play().catch(() => {
+                      toast.info(lang === 'ko' ? '화면을 탭해 재생하세요' : 'Tap the video to play');
+                    });
+                  }
+                }
               }}
               aria-label={soundEnabled ? 'Mute' : 'Unmute'}
             >
@@ -412,6 +733,8 @@ export const ClipsPage: React.FC = () => {
               const likes = local.likes ?? item.stats.likes;
               const isActive = idx === activeIndex;
               const hasVideo = Boolean(item.vertical_mp4_url);
+              const shouldLoadVideo = hasVideo && (idx === activeIndex || idx === activeIndex + 1);
+              const showHud = isActive && activeHud && activeClip?.replay_id === item.replay_id;
 
               return (
                 <div
@@ -419,42 +742,168 @@ export const ClipsPage: React.FC = () => {
                   data-clip-index={idx}
                   className="snap-start h-full relative flex items-center justify-center bg-black"
                 >
-                  {hasVideo ? (
-                    <video
-                      ref={(el) => {
-                        videoRefs.current[idx] = el;
-                      }}
-                      src={item.vertical_mp4_url ?? undefined}
-                      className="h-full w-full object-contain"
-                      playsInline
-                      muted={!soundEnabled}
-                      loop
-                      preload="metadata"
-                      controls={false}
-                      aria-label="Clip video"
-                      onClick={() => {
-                        if (soundEnabled) return;
-                        setSoundEnabled(true);
-                        tapJuice();
-                        toast.info(lang === 'ko' ? '사운드 ON' : 'Sound on');
-                      }}
-                      onTimeUpdate={(e) => {
-                        if (!isActive) return;
-                        if (completed.current.has(item.replay_id)) return;
-                        const v = e.currentTarget;
-                        const dur = v.duration;
-                        if (!Number.isFinite(dur) || dur <= 0) return;
-                        const ratio = v.currentTime / dur;
-                        if (ratio < 0.8) return;
-                        completed.current.add(item.replay_id);
-                        trackEventMutation.mutate({ replayId: item.replay_id, type: 'completion' });
-                      }}
+                  <div
+                    ref={(el) => {
+                      shakeRefs.current[idx] = el;
+                    }}
+                    className="absolute inset-0"
+                  >
+                    <img
+                      src={item.thumb_url}
+                      alt="Clip thumbnail"
+                      className={`h-full w-full object-cover ${shouldLoadVideo ? 'opacity-100' : 'opacity-85'}`}
                     />
-                  ) : (
-                    <img src={item.thumb_url} alt="Clip thumbnail" className="h-full w-full object-contain opacity-80" />
-                  )}
+                    {shouldLoadVideo && !local.videoReady ? (
+                      <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/10 to-black/50 animate-pulse" />
+                    ) : null}
+                    {hasVideo && shouldLoadVideo ? (
+                      <video
+                        ref={(el) => {
+                          videoRefs.current[idx] = el;
+                        }}
+                        src={item.vertical_mp4_url ?? undefined}
+                        poster={item.thumb_url}
+                        className={`absolute inset-0 h-full w-full object-cover ${local.videoReady ? 'opacity-100' : 'opacity-0'}`}
+                        playsInline
+                        muted={!soundEnabled}
+                        loop
+                        preload={idx === activeIndex ? 'auto' : 'metadata'}
+                        controls={false}
+                        aria-label="Clip video"
+                        onLoadedData={() => {
+                          setSlideState((s) => ({ ...s, [item.replay_id]: { ...(s[item.replay_id] ?? {}), videoReady: true } }));
+                        }}
+                        onClick={(e) => {
+                          const v = e.currentTarget;
+                          if (soundEnabled) return;
+                          tapJuice();
+                          setSoundEnabled(true);
+                          try {
+                            v.muted = false;
+                          } catch {
+                            // ignore
+                          }
+                          v.play().catch(() => {
+                            toast.info(lang === 'ko' ? '음성 재생이 차단됨 (다시 탭)' : 'Audio blocked (tap again)');
+                          });
+                          toast.info(lang === 'ko' ? '사운드 ON' : 'Sound on');
+                        }}
+                        onTimeUpdate={(e) => {
+                          if (!isActive) return;
+                          const v = e.currentTarget;
+                          handleHudTime(v, item.replay_id);
+
+                          if (completed.current.has(item.replay_id)) return;
+                          const dur = v.duration;
+                          if (!Number.isFinite(dur) || dur <= 0) return;
+                          const ratio = v.currentTime / dur;
+                          if (ratio < 0.8) return;
+                          completed.current.add(item.replay_id);
+                          trackEventMutation.mutate({ replayId: item.replay_id, type: 'completion' });
+                        }}
+                      />
+                    ) : null}
+                  </div>
 
                   <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-black/70 via-black/10 to-black/30" />
+
+                  {showHud ? (
+                    <>
+                      <div
+                        className="absolute left-3 z-20 pointer-events-none"
+                        style={{ top: `calc(env(safe-area-inset-top) + 72px)` }}
+                      >
+                        <div className="flex flex-col gap-2">
+                          <div
+                            data-testid="clip-hud-outcome"
+                            className={`nl-pop-in text-white font-black tracking-tight leading-none text-xl px-3 py-2 rounded-2xl border border-white/15 backdrop-blur ${
+                              activeHud.outcome === 'win'
+                                ? 'bg-green-600/60'
+                                : activeHud.outcome === 'loss'
+                                ? 'bg-red-600/60'
+                                : 'bg-slate-600/60'
+                            }`}
+                          >
+                            {activeHud.outcome === 'win' ? 'WIN' : activeHud.outcome === 'loss' ? 'LOSE' : 'DRAW'}
+                          </div>
+
+                          {activeHud.winnerHpPct != null ? (
+                            <div className="w-[168px] bg-black/45 border border-white/10 rounded-2xl p-2 backdrop-blur">
+                              <div className="flex items-center justify-between text-[10px] text-white/80 font-bold">
+                                <span>{lang === 'ko' ? '남은 HP' : 'HP left'}</span>
+                                <span className="font-mono">{Math.round(activeHud.winnerHpPct * 100)}%</span>
+                              </div>
+                              <div className="mt-1 h-2 rounded-full bg-white/15 overflow-hidden">
+                                <div
+                                  className={`h-full ${
+                                    activeHud.outcome === 'win'
+                                      ? 'bg-green-300'
+                                      : activeHud.outcome === 'loss'
+                                      ? 'bg-red-300'
+                                      : 'bg-slate-200'
+                                  }`}
+                                  style={{ width: `${Math.round(activeHud.winnerHpPct * 100)}%` }}
+                                />
+                              </div>
+                            </div>
+                          ) : null}
+
+                          <div className="flex flex-wrap gap-1">
+                            {activeHud.hasKill ? (
+                              <span className="text-[10px] font-black px-2 py-1 rounded-full bg-white/10 text-white border border-white/10">
+                                KILL
+                              </span>
+                            ) : null}
+                            {activeHud.hasCrit ? (
+                              <span className="text-[10px] font-black px-2 py-1 rounded-full bg-white/10 text-white border border-white/10">
+                                CRIT
+                              </span>
+                            ) : null}
+                            {activeHud.hasSynergy ? (
+                              <span className="text-[10px] font-black px-2 py-1 rounded-full bg-white/10 text-white border border-white/10">
+                                SYNERGY
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+
+                      {hudFlash ? (
+                        <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center">
+                          <div
+                            className={`nl-hud-flash ${
+                              hudFlash.tone === 'kill'
+                                ? 'text-red-100'
+                                : hudFlash.tone === 'crit'
+                                ? 'text-yellow-100'
+                                : 'text-violet-100'
+                            }`}
+                          >
+                            {hudFlash.label}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {damageFloats.length ? (
+                        <div className="absolute inset-0 z-20 pointer-events-none">
+                          {damageFloats.map((d) => (
+                            <div
+                              key={d.id}
+                              className={`nl-dmg-float text-3xl font-black drop-shadow ${
+                                d.crit ? 'text-yellow-200' : 'text-white'
+                              }`}
+                              style={{
+                                left: `calc(50% + ${d.x}px)`,
+                                top: `calc(45% + ${d.y}px)`,
+                              }}
+                            >
+                              {d.amount}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
 
                   <div className="absolute bottom-0 left-0 right-0 z-10 p-4 flex items-end justify-between gap-6">
                     <div className="max-w-[70%] space-y-2">
@@ -590,14 +1039,6 @@ export const ClipsPage: React.FC = () => {
                       </Button>
                       <div className="text-white/80 text-[11px] font-bold">{item.stats.shares}</div>
                     </div>
-                  </div>
-
-                  <div className="absolute right-4 top-20 z-10 pointer-events-none">
-                    {isActive ? (
-                      <Badge variant="neutral" className="bg-white/10 text-white border-transparent">
-                        {hasVideo ? 'PLAYING' : 'THUMB'}
-                      </Badge>
-                    ) : null}
                   </div>
 
                   {idx === clips.length - 2 && hasNextPage ? (

@@ -643,6 +643,127 @@ export const ReplayPage: React.FC = () => {
     return 41;
   }, [replyOutcome]);
 
+  const replyHp = useMemo(() => {
+    const units = replay?.header.units ?? [];
+    const maxA = units.filter((u) => u.team === 'A').reduce((acc, u) => acc + Number(u.max_hp || 0), 0);
+    const maxB = units.filter((u) => u.team === 'B').reduce((acc, u) => acc + Number(u.max_hp || 0), 0);
+    const hpA = Number(replay?.end_summary.hp_a ?? 0);
+    const hpB = Number(replay?.end_summary.hp_b ?? 0);
+    const pctA = maxA > 0 ? Math.max(0, Math.min(1, hpA / maxA)) : null;
+    const pctB = maxB > 0 ? Math.max(0, Math.min(1, hpB / maxB)) : null;
+    return { maxA, maxB, hpA, hpB, pctA, pctB };
+  }, [replay?.digest, replay?.end_summary.hp_a, replay?.end_summary.hp_b, replay?.header.units]);
+
+  const winBadge = useMemo<'PERFECT' | 'CLUTCH' | 'ONE-SHOT' | null>(() => {
+    if (replyOutcome !== 'win') return null;
+    const perfect = replyHp.maxA > 0 && replyHp.hpA === replyHp.maxA;
+    if (perfect) return 'PERFECT';
+    const dur = Number(replay?.end_summary.duration_ticks ?? 0);
+    if (Number.isFinite(dur) && dur > 0 && dur <= 90) return 'ONE-SHOT';
+    return 'CLUTCH';
+  }, [replyHp.hpA, replyHp.maxA, replyOutcome, replay?.end_summary.duration_ticks]);
+
+  const loseClosenessLabel = useMemo<string | null>(() => {
+    if (replyOutcome !== 'loss') return null;
+    const pct = replyHp.pctB;
+    if (pct == null) return null;
+    const pctText = `${Math.round(pct * 100)}%`;
+    if (pct <= 0.08) return lang === 'ko' ? `거의 이김… 상대 HP ${pctText} 남음` : `So close… enemy had ${pctText} HP left`;
+    if (pct <= 0.18) return lang === 'ko' ? `아깝다! 상대 HP ${pctText}` : `Close! Enemy had ${pctText} HP left`;
+    return lang === 'ko' ? `상대 HP ${pctText} 남음` : `Enemy had ${pctText} HP left`;
+  }, [lang, replyHp.pctB, replyOutcome]);
+
+  type AutoTuneOut = {
+    ok: boolean;
+    blueprint: BlueprintOut;
+    parent_blueprint_id: string;
+    preset: string;
+    meta?: Record<string, unknown>;
+  };
+
+  const canAutoTuneCounter = useMemo(() => {
+    if (!isReplyClip) return false;
+    if (replyOutcome !== 'loss') return false;
+    if (!replyToReplayId) return false;
+    const viewer = me?.user_id ?? '';
+    if (!viewer) return false;
+    return String(match.user_a || '') === String(viewer);
+  }, [isReplyClip, match?.user_a, me?.user_id, replyOutcome, replyToReplayId]);
+
+  const autoTuneCounterMutation = useMutation({
+    mutationFn: async () => {
+      if (!match?.mode) throw new Error('Missing match mode');
+      if (!replyToReplayId) throw new Error('Missing original clip');
+
+      const ensureBaseBlueprintId = async (): Promise<string> => {
+        if (match?.blueprint_a_id) return match.blueprint_a_id;
+        const created = await apiFetch<BlueprintOut>('/api/blueprints', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: match.mode === 'team' ? 'Starter Team (Auto)' : 'Starter 1v1 (Auto)',
+            mode: match.mode,
+            spec: null,
+          }),
+        });
+        return created.id;
+      };
+
+      const baseBlueprintId = await ensureBaseBlueprintId();
+
+      try {
+        await apiFetch('/api/events/track', {
+          method: 'POST',
+          body: JSON.stringify({
+            type: 'auto_tune_click',
+            source: 'replay_loss',
+            meta: {
+              blueprint_id: baseBlueprintId,
+              preset: 'speed',
+              match_id: id,
+              reply_to: replyToReplayId,
+            },
+          }),
+        });
+      } catch {
+        // best-effort
+      }
+
+      const tuned = await apiFetch<AutoTuneOut>(`/api/blueprints/${encodeURIComponent(baseBlueprintId)}/auto_tune`, {
+        method: 'POST',
+        body: JSON.stringify({ preset: 'speed', note: `counter vs ${replyToReplayId}`.slice(0, 280) }),
+      });
+
+      try {
+        await apiFetch('/api/events/track', {
+          method: 'POST',
+          body: JSON.stringify({
+            type: 'auto_tune_success',
+            source: 'replay_loss',
+            meta: {
+              blueprint_id: baseBlueprintId,
+              new_blueprint_id: tuned.blueprint?.id,
+              preset: 'speed',
+              match_id: id,
+              reply_to: replyToReplayId,
+            },
+          }),
+        });
+      } catch {
+        // best-effort
+      }
+
+      return tuned;
+    },
+    onSuccess: (tuned) => {
+      if (!replyToReplayId || !tuned.blueprint?.id) return;
+      toast.success(lang === 'ko' ? 'Auto Tune 완료 — 재도전!' : 'Auto Tune complete — retry!');
+      navigate(
+        `/beat?replay_id=${encodeURIComponent(replyToReplayId)}&blueprint_id=${encodeURIComponent(tuned.blueprint.id)}&src=replay_loss_auto_tune`
+      );
+    },
+    onError: (e) => toast.error(lang === 'ko' ? 'Auto Tune 실패' : 'Auto Tune failed', e instanceof Error ? e.message : String(e)),
+  });
+
   const { data: reactionCounts } = useQuery({
     queryKey: ['reactions', match?.replay_id],
     queryFn: () => apiFetch<ReactionCounts>(`/api/clips/${encodeURIComponent(match!.replay_id)}/reactions`),
@@ -900,20 +1021,37 @@ export const ReplayPage: React.FC = () => {
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
       <div className="lg:col-span-9 flex flex-col gap-4 min-h-[calc(100vh-140px)]">
         {isReplyClip ? (
-          <div className="rounded-3xl overflow-hidden border border-white/10 bg-gradient-to-r from-brand-600 to-accent-500 text-white shadow-xl">
+          <div
+            className={`rounded-3xl overflow-hidden border border-white/10 text-white shadow-xl ${
+              replyOutcome === 'win'
+                ? 'nl-result-win bg-gradient-to-r from-green-500 to-emerald-400'
+                : replyOutcome === 'loss'
+                  ? 'bg-gradient-to-r from-rose-600 to-orange-500'
+                  : 'bg-gradient-to-r from-brand-600 to-accent-500'
+            }`}
+          >
             <div className="p-5">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="text-[11px] font-black tracking-widest text-white/80 uppercase">
                     {lang === 'ko' ? '결과' : 'Result'}
                   </div>
-                  <div className="mt-1 text-4xl font-black tracking-tight leading-none">
+                  <div data-testid="reply-result-outcome" className="mt-1 text-4xl font-black tracking-tight leading-none nl-pop-in">
                     {replyOutcome === 'win' ? 'WIN' : replyOutcome === 'loss' ? 'LOSE' : replyOutcome === 'draw' ? 'DRAW' : '—'}
                   </div>
+                  {replyOutcome === 'win' && winBadge ? (
+                    <div className="mt-2">
+                      <span className="inline-flex items-center text-[10px] font-black px-2 py-1 rounded-full bg-white/15 border border-white/15">
+                        {winBadge}
+                      </span>
+                    </div>
+                  ) : null}
                   <div className="mt-2 text-sm text-white/85">
-                    {lang === 'ko'
-                      ? '이제 Reply 클립을 공유하면 원본 Replies에 표시됩니다.'
-                      : 'Share your reply clip and it will appear in Replies on the original.'}
+                    {replyOutcome === 'loss' && loseClosenessLabel
+                      ? loseClosenessLabel
+                      : lang === 'ko'
+                        ? '이제 Reply 클립을 공유하면 원본 Replies에 표시됩니다.'
+                        : 'Share your reply clip and it will appear in Replies on the original.'}
                   </div>
                 </div>
                 <div className="shrink-0 text-right">
@@ -932,7 +1070,7 @@ export const ReplayPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="mt-4 grid grid-cols-1 gap-2">
                 <button
                   type="button"
                   className="h-12 rounded-2xl bg-white text-slate-900 font-extrabold tracking-tight shadow-lg shadow-black/20 hover:bg-white/95 active:bg-white/90 transition-colors"
@@ -941,6 +1079,25 @@ export const ReplayPage: React.FC = () => {
                 >
                   {lang === 'ko' ? 'Reply 클립 공유(링크 복사)' : 'Share Reply Clip'}
                 </button>
+                {canAutoTuneCounter ? (
+                  <button
+                    type="button"
+                    className="h-12 rounded-2xl bg-white/15 border border-white/20 text-white font-extrabold tracking-tight shadow-lg shadow-black/10 hover:bg-white/20 active:bg-white/25 transition-colors disabled:opacity-60"
+                    onClick={() => {
+                      tapJuice();
+                      autoTuneCounterMutation.mutate();
+                    }}
+                    disabled={autoTuneCounterMutation.isPending}
+                  >
+                    {autoTuneCounterMutation.isPending
+                      ? lang === 'ko'
+                        ? 'Auto Tune 중…'
+                        : 'Auto Tuning…'
+                      : lang === 'ko'
+                        ? 'Auto Tune(카운터) → 재도전'
+                        : 'Auto Tune (counter) → Retry'}
+                  </button>
+                ) : null}
                 <a
                   href={replyToReplayId ? `/s/clip/${encodeURIComponent(replyToReplayId)}` : '#'}
                   className={`h-12 rounded-2xl bg-white/10 text-white font-extrabold tracking-tight border border-white/20 hover:bg-white/15 active:bg-white/20 transition-colors inline-flex items-center justify-center ${
