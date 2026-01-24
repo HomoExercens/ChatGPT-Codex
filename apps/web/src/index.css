@@ -58,6 +58,19 @@ body {
   animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+.nl-tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings:
+    'tnum' 1,
+    'lnum' 1;
+}
+
+.nl-video-text {
+  text-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.6),
+    0 0 18px rgba(0, 0, 0, 0.5);
+}
+
 @keyframes nl-pop-in {
   0% {
     transform: scale(0.92);
@@ -142,6 +155,26 @@ body {
 }
 .nl-shake {
   animation: nl-shake 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes nl-reaction-burst {
+  0% {
+    transform: translate(-50%, -50%) scale(0.82);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -56%) scale(1.18);
+    opacity: 0;
+  }
+}
+.nl-reaction-burst {
+  animation: nl-reaction-burst 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @keyframes nl-win-glow {

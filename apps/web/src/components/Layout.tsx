@@ -1,16 +1,18 @@
 import React, { useMemo } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Bell, Hammer, Play, User } from 'lucide-react';
+import { Bell, Hammer, Play, User, type LucideIcon } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 
 import { TRANSLATIONS } from '../lib/translations';
 import { apiFetch } from '../lib/api';
 import { useSettingsStore } from '../stores/settings';
 import type { NotificationsResponse } from '../api/types';
+import { Icon } from './Icon';
+import { useChromeStore } from '../stores/chrome';
 
 type TabItem = {
   to: string;
-  icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
+  icon: LucideIcon;
   label: string;
   badge?: number;
 };
@@ -31,6 +33,8 @@ export const Layout: React.FC = () => {
   const t = TRANSLATIONS[lang].nav as unknown as Record<string, string>;
 
   const isPlay = location.pathname === '/play';
+  const playChromeHidden = useChromeStore((s) => s.playChromeHidden);
+  const hideTabBar = isPlay && playChromeHidden;
 
   const { data: notifications } = useQuery({
     queryKey: ['notifications', 'inbox'],
@@ -77,7 +81,7 @@ export const Layout: React.FC = () => {
                 onClick={() => navigate('/inbox')}
                 aria-label="Open Inbox"
               >
-                <Bell size={18} />
+                <Icon icon={Bell} size={20} />
                 {unreadCount > 0 ? (
                   <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full border-2 border-bg flex items-center justify-center">
                     {unreadCount > 99 ? '99+' : unreadCount}
@@ -90,7 +94,7 @@ export const Layout: React.FC = () => {
                 onClick={() => navigate('/me')}
                 aria-label="Open Profile"
               >
-                <User size={18} />
+                <Icon icon={User} size={20} />
               </button>
             </div>
           </div>
@@ -101,7 +105,12 @@ export const Layout: React.FC = () => {
         <Outlet />
       </main>
 
-      <nav className="fixed bottom-0 inset-x-0 z-50 bg-surface-1/85 backdrop-blur-xl border-t border-border/10 pb-safe">
+      <nav
+        className={`fixed bottom-0 inset-x-0 z-50 bg-surface-1/85 backdrop-blur-xl border-t border-border/10 pb-safe transition-[transform,opacity] duration-[var(--nl-dur)] ease-[var(--nl-ease-out)] ${
+          hideTabBar ? 'translate-y-full opacity-0 pointer-events-none' : 'translate-y-0 opacity-100'
+        }`}
+        aria-hidden={hideTabBar ? 'true' : 'false'}
+      >
         <div className="h-[var(--nl-tabbar-h)] px-2 flex items-center justify-around">
           {tabs.map((item) => (
             <NavLink
@@ -113,13 +122,17 @@ export const Layout: React.FC = () => {
                 }`
               }
             >
-              <item.icon size={20} />
-              <span className="text-[10px] font-semibold">{item.label}</span>
-              {item.badge && item.badge > 0 ? (
-                <span className="absolute top-2 right-4 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                  {item.badge > 99 ? '99+' : item.badge}
-                </span>
-              ) : null}
+              {({ isActive }) => (
+                <>
+                  <Icon icon={item.icon} size={20} filled={isActive} />
+                  <span className="text-[10px] font-semibold">{item.label}</span>
+                  {item.badge && item.badge > 0 ? (
+                    <span className="absolute top-2 right-4 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                      {item.badge > 99 ? '99+' : item.badge}
+                    </span>
+                  ) : null}
+                </>
+              )}
             </NavLink>
           ))}
         </div>

@@ -23,6 +23,7 @@ import { BattleViewport } from '../components/replay/BattleViewport';
 import type { BlueprintOut, MatchDetail, ModifiersMeta, QueueResponse, QuestsTodayOut, ReactionCounts, ReactResponse, Replay } from '../api/types';
 import { apiFetch, apiFetchBlob } from '../lib/api';
 import { playSfx, tapJuice, vibrate } from '../lib/juice';
+import { setLastReactionType } from '../lib/reactions';
 import { readShareVariants } from '../lib/shareVariants';
 import { toast } from '../lib/toast';
 import { TRANSLATIONS } from '../lib/translations';
@@ -1391,7 +1392,10 @@ export const ReplayPage: React.FC = () => {
                     <Button
                       variant="secondary"
                       size="sm"
-                      onClick={() => reactMutation.mutate('up')}
+                      onClick={() => {
+                        setLastReactionType('up');
+                        reactMutation.mutate('up');
+                      }}
                       disabled={!match?.replay_id || reactMutation.isPending}
                       isLoading={reactMutation.isPending}
                     >
@@ -1400,7 +1404,10 @@ export const ReplayPage: React.FC = () => {
                     <Button
                       variant="secondary"
                       size="sm"
-                      onClick={() => reactMutation.mutate('lol')}
+                      onClick={() => {
+                        setLastReactionType('lol');
+                        reactMutation.mutate('lol');
+                      }}
                       disabled={!match?.replay_id || reactMutation.isPending}
                       isLoading={reactMutation.isPending}
                     >
@@ -1409,7 +1416,10 @@ export const ReplayPage: React.FC = () => {
                     <Button
                       variant="secondary"
                       size="sm"
-                      onClick={() => reactMutation.mutate('wow')}
+                      onClick={() => {
+                        setLastReactionType('wow');
+                        reactMutation.mutate('wow');
+                      }}
                       disabled={!match?.replay_id || reactMutation.isPending}
                       isLoading={reactMutation.isPending}
                     >

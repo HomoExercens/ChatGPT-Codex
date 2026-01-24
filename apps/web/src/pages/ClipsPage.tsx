@@ -4,6 +4,10 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Heart, MessageCircle, Share2, Sparkles, Volume2, VolumeX, Wand2, Zap } from 'lucide-react';
 
 import { CreatureSilhouettes } from '../components/CreatureSilhouettes';
+import { GesturePager } from '../components/GesturePager';
+import { Icon } from '../components/Icon';
+import { ReactionBurst } from '../components/ReactionBurst';
+import { ScrimOverlay } from '../components/ScrimOverlay';
 import { Badge, BottomSheet, Button } from '../components/ui';
 import type {
   ClaimQuestOut,
@@ -14,14 +18,17 @@ import type {
   QuestAssignment,
   QuestsTodayOut,
   RepliesResponse,
+  ReactResponse,
   Replay,
 } from '../api/types';
 import { apiFetch } from '../lib/api';
 import { getExperimentVariant, useExperiments } from '../lib/experiments';
 import { playSfx, tapJuice, vibrate } from '../lib/juice';
+import { getLastReactionType, setLastReactionType, type ReactionType } from '../lib/reactions';
 import { toast } from '../lib/toast';
 import { TRANSLATIONS } from '../lib/translations';
 import { appendUtmParams } from '../lib/utm';
+import { useChromeStore } from '../stores/chrome';
 import { useSettingsStore } from '../stores/settings';
 
 type SlideState = {
@@ -344,9 +351,8 @@ export const ClipsPage: React.FC = () => {
     onError: (e) => toast.error(lang === 'ko' ? '보상 수령 실패' : 'Claim failed', e instanceof Error ? e.message : String(e)),
   });
 
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const videoRefs = useRef<Array<HTMLVideoElement | null>>([]);
-  const shakeRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
+  const shakeRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const [activeIndex, setActiveIndex] = useState(0);
   const activeClip = useMemo(() => clips[activeIndex] ?? null, [activeIndex, clips]);
   const viewed = useRef<Set<string>>(new Set());
@@ -360,6 +366,83 @@ export const ClipsPage: React.FC = () => {
   const [quickRemixOpen, setQuickRemixOpen] = useState(false);
   const [repliesOpen, setRepliesOpen] = useState(false);
   const [repliesTab, setRepliesTab] = useState<'top' | 'recent'>('top');
+  const playChromeHidden = useChromeStore((s) => s.playChromeHidden);
+  const setPlayChromeHidden = useChromeStore((s) => s.setPlayChromeHidden);
+
+  const autoHideTimer = useRef<number | null>(null);
+  const autoHideBlockedRef = useRef<boolean>(false);
+  const [keyboardMode, setKeyboardMode] = useState(false);
+
+  const clearAutoHide = () => {
+    if (autoHideTimer.current) {
+      window.clearTimeout(autoHideTimer.current);
+      autoHideTimer.current = null;
+    }
+  };
+
+  const armAutoHide = React.useCallback(() => {
+    clearAutoHide();
+    if (autoHideBlockedRef.current) return;
+    autoHideTimer.current = window.setTimeout(() => {
+      if (autoHideBlockedRef.current) return;
+      setPlayChromeHidden(true);
+    }, 6500);
+  }, [setPlayChromeHidden]);
+
+  const showChrome = React.useCallback(() => {
+    setPlayChromeHidden(false);
+    armAutoHide();
+  }, [armAutoHide, setPlayChromeHidden]);
+
+  useEffect(() => {
+    showChrome();
+    return () => {
+      clearAutoHide();
+      setPlayChromeHidden(false);
+    };
+  }, [setPlayChromeHidden, showChrome]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Tab' || e.key === 'Shift' || e.key.startsWith('Arrow')) {
+        setKeyboardMode(true);
+        showChrome();
+      }
+    };
+    const onPointerDown = () => setKeyboardMode(false);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('pointerdown', onPointerDown, { passive: true });
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('pointerdown', onPointerDown);
+    };
+  }, [showChrome]);
+
+  useEffect(() => {
+    autoHideBlockedRef.current = reduceMotion || ftueOpen || questsOpen || quickRemixOpen || repliesOpen || keyboardMode;
+    if (autoHideBlockedRef.current) {
+      setPlayChromeHidden(false);
+      clearAutoHide();
+      return;
+    }
+    armAutoHide();
+  }, [armAutoHide, ftueOpen, keyboardMode, questsOpen, quickRemixOpen, reduceMotion, repliesOpen, setPlayChromeHidden]);
+
+  const lastTapAt = useRef<number>(0);
+  const lastReactAt = useRef<number>(0);
+  const [reactionBurst, setReactionBurst] = useState<{ key: string; reaction: ReactionType } | null>(null);
+
+  const reactMutation = useMutation({
+    mutationFn: async ({ replayId, reactionType }: { replayId: string; reactionType: ReactionType }) => {
+      return await apiFetch<ReactResponse>(`/api/clips/${encodeURIComponent(replayId)}/react`, {
+        method: 'POST',
+        body: JSON.stringify({ reaction_type: reactionType, source: 'play_double_tap' }),
+      });
+    },
+    onError: (e) => {
+      toast.error(lang === 'ko' ? '리액션 실패' : 'Reaction failed', e instanceof Error ? e.message : String(e));
+    },
+  });
 
   const [hudMatchId, setHudMatchId] = useState<string | null>(null);
   const hudTargetMatchId = activeClip?.match_id ?? null;
@@ -504,28 +587,6 @@ export const ClipsPage: React.FC = () => {
   }, [feedAlgo, heroFeedVariant, mode, sort]);
 
   useEffect(() => {
-    if (!clips.length) return;
-    const root = containerRef.current;
-    if (!root) return;
-
-    const slides = Array.from(root.querySelectorAll<HTMLElement>('[data-clip-index]'));
-    const obs = new IntersectionObserver(
-      (entries) => {
-        const best = entries
-          .filter((e) => e.isIntersecting)
-          .sort((a, b) => (b.intersectionRatio ?? 0) - (a.intersectionRatio ?? 0))[0];
-        if (!best) return;
-        const idx = Number((best.target as HTMLElement).dataset.clipIndex ?? '0');
-        if (Number.isFinite(idx)) setActiveIndex(clampIndex(idx, clips.length));
-      },
-      { root, threshold: [0.55, 0.7, 0.85] }
-    );
-
-    for (const el of slides) obs.observe(el);
-    return () => obs.disconnect();
-  }, [clips.length]);
-
-  useEffect(() => {
     const item = clips[activeIndex];
     if (!item) return;
 
@@ -559,9 +620,9 @@ export const ClipsPage: React.FC = () => {
     }
 
     // autoplay active video, pause others
-    for (let i = 0; i < videoRefs.current.length; i++) {
-      const v = videoRefs.current[i];
-      if (!v) continue;
+    for (const [idxStr, v] of Object.entries(videoRefs.current)) {
+      const i = Number(idxStr);
+      if (!Number.isFinite(i) || !v) continue;
       if (i === activeIndex) {
         if (v.paused) {
           v.play().catch(() => {
@@ -592,9 +653,7 @@ export const ClipsPage: React.FC = () => {
       e.preventDefault();
       const dir = e.key === 'ArrowDown' ? 1 : -1;
       const nextIdx = clampIndex(activeIndex + dir, clips.length);
-      const root = containerRef.current;
-      const target = root?.querySelector<HTMLElement>(`[data-clip-index="${nextIdx}"]`);
-      target?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+      setActiveIndex(nextIdx);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -765,86 +824,510 @@ export const ClipsPage: React.FC = () => {
     return { daily, completedCount, claimableCount, primary, goal, prog, pct };
   }, [questsToday?.daily]);
 
-  return (
-    <>
-      <div className="relative h-[calc(100dvh-var(--nl-tabbar-h)-env(safe-area-inset-bottom))] bg-bg overflow-hidden">
-        <div className="absolute top-0 left-0 right-0 z-20 px-4 pt-[calc(env(safe-area-inset-top)+12px)] pb-3">
-          <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="text-fg font-extrabold tracking-tight drop-shadow">{title}</div>
-            <Badge variant="neutral" className="bg-surface-1/35 text-fg border-border/10">
-              {mode}
-            </Badge>
-            <Badge variant="neutral" className="bg-surface-1/35 text-fg border-border/10">
-              {sort}
-            </Badge>
+  const triggerDoubleTapReaction = React.useCallback(() => {
+    const replayId = activeClip?.replay_id;
+    if (!replayId) return;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (now - lastReactAt.current < 650) return;
+    lastReactAt.current = now;
+
+    const reactionType = getLastReactionType();
+    setLastReactionType(reactionType);
+    setReactionBurst({ key: `burst_${replayId}_${Date.now()}`, reaction: reactionType });
+    reactMutation.mutate({ replayId, reactionType });
+    tapJuice();
+  }, [activeClip?.replay_id, reactMutation]);
+
+  const handlePagerTap = React.useCallback(() => {
+    showChrome();
+
+    const v = videoRefs.current[activeIndex];
+    if (v && v.muted) {
+      tapJuice();
+      try {
+        v.muted = false;
+      } catch {
+        // ignore
+      }
+      setSoundEnabled(true);
+      v.play().catch(() => {
+        toast.info(lang === 'ko' ? '음성 재생이 차단됨 (다시 탭)' : 'Audio blocked (tap again)');
+      });
+      toast.info(lang === 'ko' ? '사운드 ON' : 'Sound on');
+    }
+
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (now - lastTapAt.current < 280) {
+      lastTapAt.current = 0;
+      triggerDoubleTapReaction();
+      return;
+    }
+    lastTapAt.current = now;
+  }, [activeIndex, lang, setSoundEnabled, showChrome, triggerDoubleTapReaction]);
+
+  const handlePagerIndexChange = React.useCallback(
+    (nextIdx: number) => {
+      lastTapAt.current = 0;
+      setActiveIndex(nextIdx);
+      showChrome();
+    },
+    [showChrome]
+  );
+
+  const renderClipPage = (idx: number) => {
+    const item = clips[idx];
+    if (!item) {
+      return (
+        <div className="h-full w-full flex items-center justify-center bg-bg">
+          <div className="text-muted">{isFetching ? 'Loading…' : 'No clips yet.'}</div>
+        </div>
+      );
+    }
+
+    const local = slideState[item.replay_id] ?? {};
+    const liked = local.liked ?? false;
+    const likes = local.likes ?? item.stats.likes;
+    const isActive = idx === activeIndex;
+    const hasVideo = Boolean(item.vertical_mp4_url);
+    const shouldLoadVideo = hasVideo && (idx === activeIndex || idx === activeIndex + 1);
+    const showHud = isActive && activeHud && activeClip?.replay_id === item.replay_id;
+
+    const chromeAnim = `transition-[opacity,transform] duration-[var(--nl-dur)] ease-[var(--nl-ease-out)] ${
+      playChromeHidden ? 'opacity-0 pointer-events-none translate-y-2' : 'opacity-100 pointer-events-auto translate-y-0'
+    }`;
+    const safeBottomPad = 'pb-[calc(var(--nl-tabbar-h)+env(safe-area-inset-bottom)+14px)]';
+
+    return (
+      <div
+        key={`${item.replay_id}:${idx}`}
+        data-testid="play-clip"
+        data-replay-id={item.replay_id}
+        className={`relative h-full w-full bg-bg ${isActive ? 'pointer-events-auto' : 'pointer-events-none'}`}
+      >
+        <div
+          ref={(el) => {
+            if (el) shakeRefs.current[idx] = el;
+            else delete shakeRefs.current[idx];
+          }}
+          className="absolute inset-0"
+        >
+          <img
+            src={item.thumb_url}
+            alt="Clip thumbnail"
+            className={`h-full w-full object-cover ${shouldLoadVideo ? 'opacity-100' : 'opacity-85'}`}
+          />
+          {shouldLoadVideo && !local.videoReady ? (
+            <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/10 to-black/50 animate-pulse" />
+          ) : null}
+          {hasVideo && shouldLoadVideo ? (
+            <video
+              ref={(el) => {
+                if (el) videoRefs.current[idx] = el;
+                else delete videoRefs.current[idx];
+              }}
+              src={item.vertical_mp4_url ?? undefined}
+              poster={item.thumb_url}
+              className={`absolute inset-0 h-full w-full object-cover ${local.videoReady ? 'opacity-100' : 'opacity-0'}`}
+              playsInline
+              muted={!soundEnabled}
+              loop
+              preload={idx === activeIndex ? 'auto' : 'metadata'}
+              controls={false}
+              aria-label="Clip video"
+              onLoadedData={() => {
+                setSlideState((s) => ({ ...s, [item.replay_id]: { ...(s[item.replay_id] ?? {}), videoReady: true } }));
+              }}
+              onError={() => {
+                if (videoLoadFailed.current.has(item.replay_id)) return;
+                videoLoadFailed.current.add(item.replay_id);
+                setSlideState((s) => ({ ...s, [item.replay_id]: { ...(s[item.replay_id] ?? {}), videoReady: false } }));
+                apiFetch('/api/events/track', {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    type: 'video_load_fail',
+                    source: 'play',
+                    meta: {
+                      replay_id: item.replay_id,
+                      url: item.vertical_mp4_url ?? null,
+                      mode,
+                      sort,
+                      feed_algo: feedAlgo,
+                      hero_variant: heroFeedVariant,
+                    },
+                  }),
+                }).catch(() => {
+                  // best-effort
+                });
+                if (idx === activeIndex) toast.error(lang === 'ko' ? '비디오 로드 실패' : 'Video failed to load');
+              }}
+              onTimeUpdate={(e) => {
+                if (!isActive) return;
+                const v = e.currentTarget;
+                handleHudTime(v, item.replay_id);
+
+                if (completed.current.has(item.replay_id)) return;
+                const dur = v.duration;
+                if (!Number.isFinite(dur) || dur <= 0) return;
+                const ratio = v.currentTime / dur;
+                if (ratio < 0.8) return;
+                completed.current.add(item.replay_id);
+                trackEventMutation.mutate({ replayId: item.replay_id, type: 'completion' });
+              }}
+            />
+          ) : null}
+
+          <ScrimOverlay />
+        </div>
+
+        {isActive && reactionBurst ? (
+          <ReactionBurst reaction={reactionBurst.reaction} burstKey={reactionBurst.key} reduceMotion={reduceMotion} />
+        ) : null}
+
+        {showHud ? (
+          <div className={chromeAnim}>
+            <div className="absolute left-3 z-20 pointer-events-none" style={{ top: `calc(env(safe-area-inset-top) + 72px)` }}>
+              <div className="flex flex-col gap-2">
+                <div
+                  data-testid="clip-hud-outcome"
+                  className={`nl-pop-in text-fg font-black tracking-tight leading-none text-xl px-3 py-2 rounded-2xl border backdrop-blur ${
+                    activeHud.outcome === 'win'
+                      ? 'bg-success-500/22 border-success-500/25'
+                      : activeHud.outcome === 'loss'
+                        ? 'bg-danger-500/22 border-danger-500/25'
+                        : 'bg-surface-1/45 border-border/12'
+                  }`}
+                >
+                  {activeHud.outcome === 'win' ? 'WIN' : activeHud.outcome === 'loss' ? 'LOSE' : 'DRAW'}
+                </div>
+
+                {activeHud.winnerHpPct != null ? (
+                  <div className="w-[168px] bg-surface-1/45 border border-border/12 rounded-2xl p-2 backdrop-blur">
+                    <div className="flex items-center justify-between text-[10px] text-fg/80 font-bold">
+                      <span>{lang === 'ko' ? '남은 HP' : 'HP left'}</span>
+                      <span className="nl-tabular-nums">{Math.round(activeHud.winnerHpPct * 100)}%</span>
+                    </div>
+                    <div className="mt-1 h-2 rounded-full bg-white/10 overflow-hidden">
+                      <div
+                        className={`h-full ${
+                          activeHud.outcome === 'win'
+                            ? 'bg-success-500'
+                            : activeHud.outcome === 'loss'
+                              ? 'bg-danger-500'
+                              : 'bg-fg/60'
+                        }`}
+                        style={{ width: `${Math.round(activeHud.winnerHpPct * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="flex flex-wrap gap-1">
+                  {activeHud.hasKill ? (
+                    <span className="text-[10px] font-black px-2 py-1 rounded-full bg-surface-1/45 text-fg border border-border/10">
+                      KILL
+                    </span>
+                  ) : null}
+                  {activeHud.hasCrit ? (
+                    <span className="text-[10px] font-black px-2 py-1 rounded-full bg-surface-1/45 text-fg border border-border/10">
+                      CRIT
+                    </span>
+                  ) : null}
+                  {activeHud.hasSynergy ? (
+                    <span className="text-[10px] font-black px-2 py-1 rounded-full bg-surface-1/45 text-fg border border-border/10">
+                      SYNERGY
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            {hudFlash ? (
+              <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center">
+                <div
+                  className={`nl-hud-flash ${
+                    hudFlash.tone === 'kill'
+                      ? 'text-red-100'
+                      : hudFlash.tone === 'crit'
+                        ? 'text-yellow-100'
+                        : 'text-violet-100'
+                  }`}
+                >
+                  {hudFlash.label}
+                </div>
+              </div>
+            ) : null}
+
+            {damageFloats.length ? (
+              <div className="absolute inset-0 z-20 pointer-events-none">
+                {damageFloats.map((d) => (
+                  <div
+                    key={d.id}
+                    className={`nl-dmg-float text-3xl font-black ${d.crit ? 'text-yellow-200' : 'text-white'} nl-tabular-nums`}
+                    style={{
+                      left: `calc(50% + ${d.x}px)`,
+                      top: `calc(45% + ${d.y}px)`,
+                    }}
+                  >
+                    {d.amount}
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
-          <div className="flex items-center gap-2">
+        ) : null}
+
+        <div className={`absolute bottom-0 left-0 right-0 z-10 p-4 flex items-end justify-between gap-6 ${safeBottomPad} ${chromeAnim}`}>
+          <div className="max-w-[70%] space-y-2">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => navigate(`/profile/${encodeURIComponent(item.author.user_id)}?mode=${encodeURIComponent(item.mode)}`)}
+                className="pointer-events-auto text-fg font-bold hover:underline nl-video-text"
+              >
+                {item.author.display_name}
+              </button>
+              <Badge variant="neutral" className="bg-surface-1/40 text-fg border-border/10">
+                {item.mode}
+              </Badge>
+            </div>
+            <div className="text-fg text-lg font-extrabold leading-tight nl-video-text">
+              {item.blueprint_name ?? 'Untitled Build'}
+            </div>
+            <div className="flex items-center gap-2">
+              <CreatureSilhouettes seed={item.replay_id} count={item.mode === 'team' ? 3 : 1} />
+              {item.hero ? (
+                <Badge
+                  data-testid="hero-badge"
+                  variant="neutral"
+                  className="bg-brand-500/15 text-fg border-brand-500/25 text-[10px]"
+                >
+                  HERO
+                </Badge>
+              ) : item.featured ? (
+                <Badge variant="neutral" className="bg-surface-1/40 text-fg border-border/10 text-[10px]">
+                  Featured
+                </Badge>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {(item.tags ?? []).slice(0, 4).map((tag) => (
+                <Badge key={tag} variant="neutral" className="bg-surface-1/35 text-fg border-border/10 text-[10px]">
+                  {tag}
+                </Badge>
+              ))}
+            </div>
+            {item.best_clip_status !== 'ready' ? (
+              <div className="text-xs text-fg/70 nl-video-text">
+                {item.best_clip_status === 'rendering' ? 'Rendering best clip…' : 'Best clip not ready yet.'}
+              </div>
+            ) : null}
+            <div className="text-[11px] text-fg/60 nl-tabular-nums nl-video-text">
+              views {item.stats.views} · shares {item.stats.shares} · forks {item.stats.forks}
+            </div>
+            <div className="pt-2 space-y-2 pointer-events-auto">
+              <Button
+                type="button"
+                size="lg"
+                variant="primary"
+                className={`w-full rounded-2xl ${isActive && ftueOpen ? 'animate-pulse-slow' : ''}`}
+                onClick={() => {
+                  tapJuice();
+                  navigate(`/beat?replay_id=${encodeURIComponent(item.replay_id)}&src=clip_view`);
+                }}
+                aria-label="Beat This"
+              >
+                <Icon icon={Zap} size={20} />
+                <span className="ml-2">{lang === 'ko' ? 'Beat This (도전)' : 'Beat This'}</span>
+              </Button>
+              <Button
+                type="button"
+                size="lg"
+                variant="secondary"
+                className="w-full rounded-2xl bg-surface-1/40 text-fg border-border/12 hover:bg-surface-1/50"
+                onClick={() => {
+                  tapJuice();
+                  apiFetch('/api/events/track', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                      type: 'quick_remix_click',
+                      source: 'play',
+                      meta: { replay_id: item.replay_id, mode: item.mode, sort, feed_algo: feedAlgo },
+                    }),
+                  }).catch(() => {
+                    // best-effort
+                  });
+                  setQuickRemixOpen(true);
+                }}
+                aria-label="Quick Remix"
+                disabled={!item.replay_id}
+              >
+                <Icon icon={Wand2} size={20} />
+                <span className="ml-2">{lang === 'ko' ? 'Quick Remix (프리셋)' : 'Quick Remix'}</span>
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex flex-col items-center gap-3 pb-2 pointer-events-auto">
+            <Button
+              type="button"
+              size="icon"
+              variant={liked ? 'primary' : 'secondary'}
+              className="rounded-full"
+              onClick={() => {
+                tapJuice();
+                likeMutation.mutate(item);
+              }}
+              aria-label="Like clip"
+            >
+              <Icon icon={Heart} size={20} filled={liked} className={liked ? 'text-black' : ''} />
+            </Button>
+            <div className="text-fg/80 text-[11px] font-bold nl-tabular-nums nl-video-text">{likes}</div>
+
             <Button
               type="button"
               size="icon"
               variant="secondary"
-              className="bg-surface-1/35 text-fg border-border/12 hover:bg-surface-1/45 rounded-full"
+              className="rounded-full"
               onClick={() => {
-                const next = !soundEnabled;
-                setSoundEnabled(next);
                 tapJuice();
-                toast.info(next ? (lang === 'ko' ? '사운드 ON' : 'Sound on') : lang === 'ko' ? '사운드 OFF' : 'Sound off');
-                const v = videoRefs.current[activeIndex];
-                if (v) {
-                  try {
-                    v.muted = !next;
-                  } catch {
-                    // ignore
-                  }
-                  if (next && v.paused) {
-                    v.play().catch(() => {
-                      toast.info(lang === 'ko' ? '화면을 탭해 재생하세요' : 'Tap the video to play');
-                    });
-                  }
-                }
+                setRepliesTab('top');
+                setRepliesOpen(true);
               }}
-              aria-label={soundEnabled ? 'Mute' : 'Unmute'}
+              aria-label="Replies (view reply chain)"
             >
-              {soundEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
+              <Icon icon={MessageCircle} size={20} />
             </Button>
+            <div className="text-fg/80 text-[11px] font-bold nl-video-text">Replies</div>
+
             <Button
-              size="sm"
-              variant={mode === '1v1' ? 'secondary' : 'outline'}
-              className={mode === '1v1' ? 'bg-surface-1/35 border-border/12 text-fg' : 'bg-transparent border-border/12 text-fg/85'}
-              onClick={() => setMode('1v1')}
               type="button"
+              size="icon"
+              variant="secondary"
+              className="rounded-full"
+              onClick={() => {
+                tapJuice();
+                shareMutation.mutate(item);
+              }}
+              aria-label="Copy share link"
             >
-              1v1
+              <Icon icon={Share2} size={20} />
             </Button>
-            <Button
-              size="sm"
-              variant={mode === 'team' ? 'secondary' : 'outline'}
-              className={mode === 'team' ? 'bg-surface-1/35 border-border/12 text-fg' : 'bg-transparent border-border/12 text-fg/85'}
-              onClick={() => setMode('team')}
-              type="button"
-            >
-              Team
-            </Button>
-            <Button
-              size="sm"
-              variant={sort === 'trending' ? 'secondary' : 'outline'}
-              className={sort === 'trending' ? 'bg-surface-1/35 border-border/12 text-fg' : 'bg-transparent border-border/12 text-fg/85'}
-              onClick={() => setSort('trending')}
-              type="button"
-            >
-              Trending
-            </Button>
-            <Button
-              size="sm"
-              variant={sort === 'new' ? 'secondary' : 'outline'}
-              className={sort === 'new' ? 'bg-surface-1/35 border-border/12 text-fg' : 'bg-transparent border-border/12 text-fg/85'}
-              onClick={() => setSort('new')}
-              type="button"
-            >
-              New
-            </Button>
+            <div className="text-fg/80 text-[11px] font-bold nl-tabular-nums nl-video-text">
+              {item.stats.shares}
+            </div>
           </div>
+        </div>
+
+        {idx === clips.length - 2 && hasNextPage ? (
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10">
+            <Badge variant="neutral" className="bg-surface-1/45 text-fg border-border/10">
+              Loading more…
+            </Badge>
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
+  const chromeAnim = `transition-[opacity,transform] duration-[var(--nl-dur)] ease-[var(--nl-ease-out)] ${
+    playChromeHidden ? 'opacity-0 pointer-events-none -translate-y-2' : 'opacity-100 pointer-events-auto translate-y-0'
+  }`;
+
+  return (
+    <>
+      <div className="relative h-[100dvh] bg-bg overflow-hidden">
+        <div className={`absolute top-0 left-0 right-0 z-20 px-4 pt-[calc(env(safe-area-inset-top)+12px)] pb-3 ${chromeAnim}`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="text-fg font-extrabold tracking-tight nl-video-text">{title}</div>
+              <Badge variant="neutral" className="bg-surface-1/35 text-fg border-border/10">
+                {mode}
+              </Badge>
+              <Badge variant="neutral" className="bg-surface-1/35 text-fg border-border/10">
+                {sort}
+              </Badge>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                className="bg-surface-1/35 text-fg border-border/12 hover:bg-surface-1/45 rounded-full"
+                onClick={() => {
+                  const next = !soundEnabled;
+                  setSoundEnabled(next);
+                  tapJuice();
+                  toast.info(
+                    next ? (lang === 'ko' ? '사운드 ON' : 'Sound on') : lang === 'ko' ? '사운드 OFF' : 'Sound off'
+                  );
+                  const v = videoRefs.current[activeIndex];
+                  if (v) {
+                    try {
+                      v.muted = !next;
+                    } catch {
+                      // ignore
+                    }
+                    if (next && v.paused) {
+                      v.play().catch(() => {
+                        toast.info(lang === 'ko' ? '화면을 탭해 재생하세요' : 'Tap the video to play');
+                      });
+                    }
+                  }
+                  showChrome();
+                }}
+                aria-label={soundEnabled ? 'Mute' : 'Unmute'}
+              >
+                <Icon icon={soundEnabled ? Volume2 : VolumeX} size={20} />
+              </Button>
+              <Button
+                size="sm"
+                variant={mode === '1v1' ? 'secondary' : 'outline'}
+                className={mode === '1v1' ? 'bg-surface-1/35 border-border/12 text-fg' : 'bg-transparent border-border/12 text-fg/85'}
+                onClick={() => {
+                  tapJuice();
+                  setMode('1v1');
+                }}
+                type="button"
+              >
+                1v1
+              </Button>
+              <Button
+                size="sm"
+                variant={mode === 'team' ? 'secondary' : 'outline'}
+                className={mode === 'team' ? 'bg-surface-1/35 border-border/12 text-fg' : 'bg-transparent border-border/12 text-fg/85'}
+                onClick={() => {
+                  tapJuice();
+                  setMode('team');
+                }}
+                type="button"
+              >
+                Team
+              </Button>
+              <Button
+                size="sm"
+                variant={sort === 'trending' ? 'secondary' : 'outline'}
+                className={sort === 'trending' ? 'bg-surface-1/35 border-border/12 text-fg' : 'bg-transparent border-border/12 text-fg/85'}
+                onClick={() => {
+                  tapJuice();
+                  setSort('trending');
+                }}
+                type="button"
+              >
+                Trending
+              </Button>
+              <Button
+                size="sm"
+                variant={sort === 'new' ? 'secondary' : 'outline'}
+                className={sort === 'new' ? 'bg-surface-1/35 border-border/12 text-fg' : 'bg-transparent border-border/12 text-fg/85'}
+                onClick={() => {
+                  tapJuice();
+                  setSort('new');
+                }}
+                type="button"
+              >
+                New
+              </Button>
+            </div>
           </div>
 
           {questCard ? (
@@ -870,13 +1353,14 @@ export const ClipsPage: React.FC = () => {
                 }).catch(() => {
                   // best-effort
                 });
+                showChrome();
               }}
             >
               <div className="flex items-center justify-between gap-3">
                 <div className="text-[11px] font-black tracking-widest text-fg/80 uppercase">
                   {lang === 'ko' ? '오늘의 퀘스트' : "Today's Quests"}
                 </div>
-                <div className="text-[11px] font-mono text-fg/70">
+                <div className="text-[11px] nl-tabular-nums text-fg/70">
                   {questCard.completedCount}/{questCard.daily.length}
                   {questCard.claimableCount > 0 ? (
                     <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-brand-500/15 border border-brand-500/20 text-fg font-black">
@@ -893,7 +1377,7 @@ export const ClipsPage: React.FC = () => {
                     style={{ width: `${questCard.pct * 100}%` }}
                   />
                 </div>
-                <div className="text-[11px] font-mono text-fg/70">
+                <div className="text-[11px] nl-tabular-nums text-fg/70">
                   {questCard.prog}/{questCard.goal}
                 </div>
               </div>
@@ -904,9 +1388,7 @@ export const ClipsPage: React.FC = () => {
         {ftueOpen ? (
           <div className="absolute left-4 right-4 z-30 pointer-events-none" style={{ top: `calc(env(safe-area-inset-top) + 64px)` }}>
             <div className="pointer-events-auto max-w-md bg-surface-1/55 border border-border/12 rounded-3xl p-3 backdrop-blur-xl shadow-glass">
-              <div className="text-fg text-sm font-extrabold tracking-tight">
-                {lang === 'ko' ? '2분 루프' : '60s Loop'}
-              </div>
+              <div className="text-fg text-sm font-extrabold tracking-tight">{lang === 'ko' ? '2분 루프' : '60s Loop'}</div>
               <div className="text-fg/80 text-xs mt-1">
                 {lang === 'ko'
                   ? '클립 보기 → Beat This → 내 Reply가 원본에 추가됩니다.'
@@ -923,6 +1405,7 @@ export const ClipsPage: React.FC = () => {
                       // ignore
                     }
                     setFtueOpen(false);
+                    showChrome();
                   }}
                 >
                   {lang === 'ko' ? '확인' : 'Got it'}
@@ -932,373 +1415,24 @@ export const ClipsPage: React.FC = () => {
           </div>
         ) : null}
 
-        <div ref={containerRef} className="h-full overflow-y-scroll snap-y snap-mandatory">
-          {clips.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-muted">
-              {isFetching ? 'Loading…' : 'No clips yet.'}
-            </div>
-          ) : (
-            clips.map((item, idx) => {
-              const local = slideState[item.replay_id] ?? {};
-              const liked = local.liked ?? false;
-              const likes = local.likes ?? item.stats.likes;
-              const isActive = idx === activeIndex;
-              const hasVideo = Boolean(item.vertical_mp4_url);
-              const shouldLoadVideo = hasVideo && (idx === activeIndex || idx === activeIndex + 1);
-              const showHud = isActive && activeHud && activeClip?.replay_id === item.replay_id;
+        {clips.length === 0 ? (
+          <div className="h-full flex items-center justify-center text-muted">{isFetching ? 'Loading…' : 'No clips yet.'}</div>
+        ) : (
+          <GesturePager
+            index={clampIndex(activeIndex, clips.length)}
+            count={clips.length}
+            onIndexChange={handlePagerIndexChange}
+            reduceMotion={reduceMotion}
+            onTap={handlePagerTap}
+            renderPage={renderClipPage}
+          />
+        )}
 
-              return (
-                <div
-                  key={`${item.replay_id}:${idx}`}
-                  data-clip-index={idx}
-                  className="snap-start h-full relative flex items-center justify-center bg-bg"
-                >
-                  <div
-                    ref={(el) => {
-                      shakeRefs.current[idx] = el;
-                    }}
-                    className="absolute inset-0"
-                  >
-                    <img
-                      src={item.thumb_url}
-                      alt="Clip thumbnail"
-                      className={`h-full w-full object-cover ${shouldLoadVideo ? 'opacity-100' : 'opacity-85'}`}
-                    />
-                    {shouldLoadVideo && !local.videoReady ? (
-                      <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/10 to-black/50 animate-pulse" />
-                    ) : null}
-                    {hasVideo && shouldLoadVideo ? (
-                      <video
-                        ref={(el) => {
-                          videoRefs.current[idx] = el;
-                        }}
-                        src={item.vertical_mp4_url ?? undefined}
-                        poster={item.thumb_url}
-                        className={`absolute inset-0 h-full w-full object-cover ${local.videoReady ? 'opacity-100' : 'opacity-0'}`}
-                        playsInline
-                        muted={!soundEnabled}
-                        loop
-                        preload={idx === activeIndex ? 'auto' : 'metadata'}
-                        controls={false}
-                        aria-label="Clip video"
-                        onLoadedData={() => {
-                          setSlideState((s) => ({ ...s, [item.replay_id]: { ...(s[item.replay_id] ?? {}), videoReady: true } }));
-                        }}
-                        onError={() => {
-                          if (videoLoadFailed.current.has(item.replay_id)) return;
-                          videoLoadFailed.current.add(item.replay_id);
-                          setSlideState((s) => ({ ...s, [item.replay_id]: { ...(s[item.replay_id] ?? {}), videoReady: false } }));
-                          apiFetch('/api/events/track', {
-                            method: 'POST',
-                            body: JSON.stringify({
-                              type: 'video_load_fail',
-                              source: 'play',
-                              meta: {
-                                replay_id: item.replay_id,
-                                url: item.vertical_mp4_url ?? null,
-                                mode,
-                                sort,
-                                feed_algo: feedAlgo,
-                                hero_variant: heroFeedVariant,
-                              },
-                            }),
-                          }).catch(() => {
-                            // best-effort
-                          });
-                          if (idx === activeIndex) toast.error(lang === 'ko' ? '비디오 로드 실패' : 'Video failed to load');
-                        }}
-                        onClick={(e) => {
-                          const v = e.currentTarget;
-                          if (soundEnabled) return;
-                          tapJuice();
-                          setSoundEnabled(true);
-                          try {
-                            v.muted = false;
-                          } catch {
-                            // ignore
-                          }
-                          v.play().catch(() => {
-                            toast.info(lang === 'ko' ? '음성 재생이 차단됨 (다시 탭)' : 'Audio blocked (tap again)');
-                          });
-                          toast.info(lang === 'ko' ? '사운드 ON' : 'Sound on');
-                        }}
-                        onTimeUpdate={(e) => {
-                          if (!isActive) return;
-                          const v = e.currentTarget;
-                          handleHudTime(v, item.replay_id);
+        <div data-testid="active-replay-id" data-replay-id={activeClip?.replay_id ?? ''} className="sr-only" />
 
-                          if (completed.current.has(item.replay_id)) return;
-                          const dur = v.duration;
-                          if (!Number.isFinite(dur) || dur <= 0) return;
-                          const ratio = v.currentTime / dur;
-                          if (ratio < 0.8) return;
-                          completed.current.add(item.replay_id);
-                          trackEventMutation.mutate({ replayId: item.replay_id, type: 'completion' });
-                        }}
-                      />
-                    ) : null}
-                  </div>
-
-                  <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-black/70 via-black/10 to-black/30" />
-
-                  {showHud ? (
-                    <>
-                      <div
-                        className="absolute left-3 z-20 pointer-events-none"
-                        style={{ top: `calc(env(safe-area-inset-top) + 72px)` }}
-                      >
-                        <div className="flex flex-col gap-2">
-                          <div
-                            data-testid="clip-hud-outcome"
-                            className={`nl-pop-in text-fg font-black tracking-tight leading-none text-xl px-3 py-2 rounded-2xl border backdrop-blur ${
-                              activeHud.outcome === 'win'
-                                ? 'bg-success-500/22 border-success-500/25'
-                                : activeHud.outcome === 'loss'
-                                ? 'bg-danger-500/22 border-danger-500/25'
-                                : 'bg-surface-1/45 border-border/12'
-                            }`}
-                          >
-                            {activeHud.outcome === 'win' ? 'WIN' : activeHud.outcome === 'loss' ? 'LOSE' : 'DRAW'}
-                          </div>
-
-                          {activeHud.winnerHpPct != null ? (
-                            <div className="w-[168px] bg-surface-1/45 border border-border/12 rounded-2xl p-2 backdrop-blur">
-                              <div className="flex items-center justify-between text-[10px] text-fg/80 font-bold">
-                                <span>{lang === 'ko' ? '남은 HP' : 'HP left'}</span>
-                                <span className="font-mono">{Math.round(activeHud.winnerHpPct * 100)}%</span>
-                              </div>
-                              <div className="mt-1 h-2 rounded-full bg-white/10 overflow-hidden">
-                                <div
-                                  className={`h-full ${
-                                    activeHud.outcome === 'win'
-                                      ? 'bg-success-500'
-                                      : activeHud.outcome === 'loss'
-                                      ? 'bg-danger-500'
-                                      : 'bg-fg/60'
-                                  }`}
-                                  style={{ width: `${Math.round(activeHud.winnerHpPct * 100)}%` }}
-                                />
-                              </div>
-                            </div>
-                          ) : null}
-
-                          <div className="flex flex-wrap gap-1">
-                            {activeHud.hasKill ? (
-                              <span className="text-[10px] font-black px-2 py-1 rounded-full bg-surface-1/45 text-fg border border-border/10">
-                                KILL
-                              </span>
-                            ) : null}
-                            {activeHud.hasCrit ? (
-                              <span className="text-[10px] font-black px-2 py-1 rounded-full bg-surface-1/45 text-fg border border-border/10">
-                                CRIT
-                              </span>
-                            ) : null}
-                            {activeHud.hasSynergy ? (
-                              <span className="text-[10px] font-black px-2 py-1 rounded-full bg-surface-1/45 text-fg border border-border/10">
-                                SYNERGY
-                              </span>
-                            ) : null}
-                          </div>
-                        </div>
-                      </div>
-
-                      {hudFlash ? (
-                        <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center">
-                          <div
-                            className={`nl-hud-flash ${
-                              hudFlash.tone === 'kill'
-                                ? 'text-red-100'
-                                : hudFlash.tone === 'crit'
-                                ? 'text-yellow-100'
-                                : 'text-violet-100'
-                            }`}
-                          >
-                            {hudFlash.label}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {damageFloats.length ? (
-                        <div className="absolute inset-0 z-20 pointer-events-none">
-                          {damageFloats.map((d) => (
-                            <div
-                              key={d.id}
-                              className={`nl-dmg-float text-3xl font-black drop-shadow ${
-                                d.crit ? 'text-yellow-200' : 'text-white'
-                              }`}
-                              style={{
-                                left: `calc(50% + ${d.x}px)`,
-                                top: `calc(45% + ${d.y}px)`,
-                              }}
-                            >
-                              {d.amount}
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-                    </>
-                  ) : null}
-
-                  <div className="absolute bottom-0 left-0 right-0 z-10 p-4 flex items-end justify-between gap-6">
-                    <div className="max-w-[70%] space-y-2">
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => navigate(`/profile/${encodeURIComponent(item.author.user_id)}?mode=${encodeURIComponent(item.mode)}`)}
-                          className="pointer-events-auto text-fg font-bold hover:underline drop-shadow"
-                        >
-                          {item.author.display_name}
-                        </button>
-                        <Badge variant="neutral" className="bg-surface-1/40 text-fg border-border/10">
-                          {item.mode}
-                        </Badge>
-                      </div>
-	                      <div className="text-fg text-lg font-extrabold leading-tight drop-shadow">
-	                        {item.blueprint_name ?? 'Untitled Build'}
-	                      </div>
-                        <div className="flex items-center gap-2">
-                          <CreatureSilhouettes seed={item.replay_id} count={item.mode === 'team' ? 3 : 1} />
-                          {item.hero ? (
-                            <Badge
-                              data-testid="hero-badge"
-                              variant="neutral"
-                              className="bg-brand-500/15 text-fg border-brand-500/25 text-[10px]"
-                            >
-                              HERO
-                            </Badge>
-                          ) : item.featured ? (
-                            <Badge variant="neutral" className="bg-surface-1/40 text-fg border-border/10 text-[10px]">
-                              Featured
-                            </Badge>
-                          ) : null}
-	                      </div>
-	                      <div className="flex flex-wrap gap-1">
-	                        {(item.tags ?? []).slice(0, 4).map((tag) => (
-	                          <Badge
-	                            key={tag}
-                            variant="neutral"
-                            className="bg-surface-1/35 text-fg border-border/10 text-[10px]"
-                          >
-                            {tag}
-                          </Badge>
-                        ))}
-                      </div>
-                      {item.best_clip_status !== 'ready' ? (
-                        <div className="text-xs text-fg/70">
-                          {item.best_clip_status === 'rendering' ? 'Rendering best clip…' : 'Best clip not ready yet.'}
-                        </div>
-                      ) : null}
-                      <div className="text-[11px] text-fg/60 font-mono drop-shadow">
-                        views {item.stats.views} · shares {item.stats.shares} · forks {item.stats.forks}
-                      </div>
-                      <div className="pt-2 space-y-2 pointer-events-auto">
-	                        <Button
-	                        type="button"
-	                        size="lg"
-	                        variant="primary"
-	                        className={`w-full rounded-2xl ${isActive && ftueOpen ? 'animate-pulse-slow' : ''}`}
-	                        onClick={() => {
-	                          tapJuice();
-	                          navigate(`/beat?replay_id=${encodeURIComponent(item.replay_id)}&src=clip_view`);
-	                        }}
-	                        aria-label="Beat This"
-                      >
-                        <Zap size={18} />
-                        <span className="ml-2">{lang === 'ko' ? 'Beat This (도전)' : 'Beat This'}</span>
-                      </Button>
-                        <Button
-                          type="button"
-                        size="lg"
-                        variant="secondary"
-	                        className="w-full rounded-2xl bg-surface-1/40 text-fg border-border/12 hover:bg-surface-1/50"
-	                        onClick={() => {
-	                          tapJuice();
-                          apiFetch('/api/events/track', {
-                            method: 'POST',
-                            body: JSON.stringify({
-                              type: 'quick_remix_click',
-                              source: 'play',
-                              meta: { replay_id: item.replay_id, mode: item.mode, sort, feed_algo: feedAlgo },
-                            }),
-                          }).catch(() => {
-                            // best-effort
-                          });
-	                          setQuickRemixOpen(true);
-	                        }}
-	                        aria-label="Quick Remix"
-	                        disabled={!item.replay_id}
-                      >
-                        <Wand2 size={18} />
-                        <span className="ml-2">{lang === 'ko' ? 'Quick Remix (프리셋)' : 'Quick Remix'}</span>
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col items-center gap-3 pb-2">
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant={liked ? 'primary' : 'secondary'}
-                        className="pointer-events-auto rounded-full"
-                        onClick={() => {
-                          tapJuice();
-                          likeMutation.mutate(item);
-                        }}
-                        aria-label="Like clip"
-                      >
-                        <Heart size={18} className={liked ? 'text-black' : ''} />
-                      </Button>
-                      <div className="text-fg/80 text-[11px] font-bold drop-shadow">{likes}</div>
-
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="secondary"
-                        className="pointer-events-auto rounded-full"
-                        onClick={() => {
-                          tapJuice();
-                          setRepliesTab('top');
-                          setRepliesOpen(true);
-                        }}
-                        aria-label="Replies (view reply chain)"
-                      >
-                        <MessageCircle size={18} />
-                      </Button>
-                      <div className="text-fg/80 text-[11px] font-bold drop-shadow">Replies</div>
-
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="secondary"
-                        className="pointer-events-auto rounded-full"
-                        onClick={() => {
-                          tapJuice();
-                          shareMutation.mutate(item);
-                        }}
-                        aria-label="Copy share link"
-                      >
-                        <Share2 size={18} />
-                      </Button>
-                      <div className="text-fg/80 text-[11px] font-bold drop-shadow">{item.stats.shares}</div>
-                    </div>
-                  </div>
-
-                  {idx === clips.length - 2 && hasNextPage ? (
-                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10">
-                      <Badge variant="neutral" className="bg-surface-1/45 text-fg border-border/10">
-                        Loading more…
-                      </Badge>
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        <div className="absolute bottom-4 left-4 z-20 pointer-events-none flex items-center gap-2 text-fg/60 text-[11px] drop-shadow">
-          <Sparkles size={14} />
-          <span>{lang === 'ko' ? '스크롤 또는 ↑/↓ 로 이동' : 'Scroll or use ↑/↓ to navigate'}</span>
+        <div className={`absolute bottom-4 left-4 z-20 pointer-events-none flex items-center gap-2 text-fg/60 text-[11px] nl-video-text ${chromeAnim}`}>
+          <Icon icon={Sparkles} size={20} />
+          <span>{lang === 'ko' ? '스와이프 ↑/↓' : 'Swipe ↑/↓'}</span>
         </div>
       </div>
 
