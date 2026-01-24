@@ -28,6 +28,8 @@ test('play feed loads and shows Beat This CTA', async ({ page }) => {
   });
 
   await page.goto('/play');
+  await expect(page.getByTestId('hero-badge').first()).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('today-quest-card').first()).toBeVisible({ timeout: 60_000 });
   await expect(page.getByRole('button', { name: /Beat This/i }).first()).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId('clip-hud-outcome').first()).toBeVisible({ timeout: 60_000 });
   expect(consoleErrors).toEqual([]);

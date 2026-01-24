@@ -76,6 +76,7 @@ class ClipFeedItemOut(BaseModel):
     stats: ClipStatsOut
     tags: list[str] = Field(default_factory=list)
     featured: bool = False
+    hero: bool = False
 
 
 class ClipFeedOut(BaseModel):
@@ -258,6 +259,7 @@ def feed(
     mode: Literal["1v1", "team"] = "1v1",
     sort: Literal["trending", "new"] = "trending",
     algo: Literal["v1", "v2", "v3"] = "v2",
+    hero: bool = Query(default=False),
     limit: int = Query(default=12, ge=1, le=30),
     cursor: str | None = None,
     _viewer_user_id: str = CurrentUserId,
@@ -284,47 +286,93 @@ def feed(
         except Exception:  # noqa: BLE001
             raise HTTPException(status_code=400, detail="Invalid cursor") from None
 
-    featured_pairs: list[tuple[Match, Replay]] = []
-    featured_replay_ids: list[str] = []
-    featured_take = min(3, max(0, int(limit) - 1))
-    if cursor is None and featured_take > 0:
-        fq = (
-            select(FeaturedItem)
-            .where(FeaturedItem.kind == "clip")
-            .where(FeaturedItem.status == "active")
-            .where((FeaturedItem.starts_at.is_(None)) | (FeaturedItem.starts_at <= now))
-            .where((FeaturedItem.ends_at.is_(None)) | (FeaturedItem.ends_at > now))
-            .order_by(desc(FeaturedItem.priority), desc(FeaturedItem.created_at))
-            .limit(int(featured_take) * 3)
-        )
-        featured = db.scalars(fq).all()
-        for fi in featured:
-            rid = str(fi.target_id or "").strip()
-            if not rid:
-                continue
-            if rid in hidden_replay_ids:
-                continue
-            if rid in global_hidden_replay_ids:
-                continue
-            if rid not in featured_replay_ids:
-                featured_replay_ids.append(rid)
-            if len(featured_replay_ids) >= featured_take:
-                break
+    def _load_hero_ids() -> list[str]:
+        try:
+            backend = get_storage_backend()
+            key = "ops/hero_clips.json"
+            if not backend.exists(key=key):
+                return []
+            raw = backend.get_bytes(key=key)
+            parsed = orjson.loads(raw)
+            if isinstance(parsed, list):
+                out = [str(x).strip() for x in parsed if str(x).strip()]
+                return out
+            if isinstance(parsed, dict):
+                by_mode = parsed.get("by_mode")
+                if isinstance(by_mode, dict):
+                    cur = by_mode.get(str(mode))
+                    if isinstance(cur, list):
+                        out = [str(x).strip() for x in cur if str(x).strip()]
+                        return out
+                ids = parsed.get("replay_ids")
+                if isinstance(ids, list):
+                    out = [str(x).strip() for x in ids if str(x).strip()]
+                    return out
+            return []
+        except Exception:  # noqa: BLE001
+            return []
 
-        if featured_replay_ids:
-            feat_rows = db.execute(
+    pinned_pairs: list[tuple[Match, Replay, bool]] = []
+    pinned_ids: list[str] = []
+    pinned_take = min(5 if hero else 3, max(0, int(limit) - 1))
+    if cursor is None and pinned_take > 0:
+        hero_ids: list[str] = []
+        if hero:
+            for rid in _load_hero_ids():
+                if not rid:
+                    continue
+                if rid in hidden_replay_ids:
+                    continue
+                if rid in global_hidden_replay_ids:
+                    continue
+                if rid not in hero_ids:
+                    hero_ids.append(rid)
+                if len(hero_ids) >= pinned_take:
+                    break
+
+        pinned_ids = list(hero_ids)
+        fill = max(0, pinned_take - len(pinned_ids))
+        if fill > 0:
+            fq = (
+                select(FeaturedItem)
+                .where(FeaturedItem.kind == "clip")
+                .where(FeaturedItem.status == "active")
+                .where((FeaturedItem.starts_at.is_(None)) | (FeaturedItem.starts_at <= now))
+                .where((FeaturedItem.ends_at.is_(None)) | (FeaturedItem.ends_at > now))
+                .order_by(desc(FeaturedItem.priority), desc(FeaturedItem.created_at))
+                .limit(int(fill) * 3)
+            )
+            featured = db.scalars(fq).all()
+            for fi in featured:
+                rid = str(fi.target_id or "").strip()
+                if not rid:
+                    continue
+                if rid in hero_ids:
+                    continue
+                if rid in hidden_replay_ids:
+                    continue
+                if rid in global_hidden_replay_ids:
+                    continue
+                if rid not in pinned_ids:
+                    pinned_ids.append(rid)
+                if len(pinned_ids) >= pinned_take:
+                    break
+
+        if pinned_ids:
+            pinned_rows = db.execute(
                 select(Match, Replay)
                 .join(Replay, Replay.match_id == Match.id)
-                .where(Replay.id.in_(featured_replay_ids))
+                .where(Replay.id.in_(pinned_ids))
                 .where(Match.status == "done")
                 .where(Match.mode == mode)
                 .where(Match.ruleset_version == ruleset)
             ).all()
-            by_rid = {str(r.id): (m, r) for (m, r) in feat_rows if r and m}
-            for rid in featured_replay_ids:
+            by_rid = {str(r.id): (m, r) for (m, r) in pinned_rows if r and m}
+            for rid in pinned_ids:
                 pair = by_rid.get(str(rid))
                 if pair:
-                    featured_pairs.append(pair)
+                    is_hero = bool(hero and (rid in hero_ids or not hero_ids))
+                    pinned_pairs.append((pair[0], pair[1], is_hero))
 
     base_q = (
         select(Match, Replay)
@@ -333,8 +381,8 @@ def feed(
         .where(Match.mode == mode)
         .where(Match.ruleset_version == ruleset)
     )
-    if featured_replay_ids:
-        base_q = base_q.where(~Replay.id.in_(featured_replay_ids))
+    if pinned_ids:
+        base_q = base_q.where(~Replay.id.in_(pinned_ids))
     if hidden_replay_ids:
         base_q = base_q.where(~Replay.id.in_(hidden_replay_ids))
     if global_hidden_replay_ids:
@@ -363,7 +411,7 @@ def feed(
         replay_by_match[str(m.id)] = r
 
     # Resolve authors and blueprints.
-    all_matches = list(match_by_id.values()) + [m for (m, _r) in featured_pairs]
+    all_matches = list(match_by_id.values()) + [m for (m, _r, _hero_flag) in pinned_pairs]
     user_ids = sorted({str(m.user_a_id) for m in all_matches if m.user_a_id})
     bp_ids = sorted({str(m.blueprint_a_id) for m in all_matches if m.blueprint_a_id})
     users = (
@@ -379,7 +427,7 @@ def feed(
 
     # Likes: current count per replay (not time-windowed; toggled state is stored).
     replay_ids = [str(replay_by_match[mid].id) for mid in match_by_id.keys()]
-    for _m, r in featured_pairs:
+    for _m, r, _hero_flag in pinned_pairs:
         rid = str(r.id)
         if rid not in replay_ids:
             replay_ids.append(rid)
@@ -529,7 +577,9 @@ def feed(
 
     backend = get_storage_backend()
 
-    def build_item(*, m: Match, replay: Replay, featured_flag: bool) -> ClipFeedItemOut:
+    def build_item(
+        *, m: Match, replay: Replay, featured_flag: bool, hero_flag: bool = False
+    ) -> ClipFeedItemOut:
         created_at = _as_aware(m.created_at) or now
         u = user_by_id.get(str(m.user_a_id))
         bp = bp_by_id.get(str(m.blueprint_a_id)) if m.blueprint_a_id else None
@@ -580,12 +630,15 @@ def feed(
             ),
             tags=seg.tags,
             featured=bool(featured_flag),
+            hero=bool(hero_flag),
         )
 
     featured_items_out: list[ClipFeedItemOut] = []
-    for m, r in featured_pairs:
+    for m, r, is_hero in pinned_pairs:
         try:
-            featured_items_out.append(build_item(m=m, replay=r, featured_flag=True))
+            featured_items_out.append(
+                build_item(m=m, replay=r, featured_flag=True, hero_flag=is_hero)
+            )
         except Exception:  # noqa: BLE001
             continue
 
@@ -611,7 +664,7 @@ def feed(
         )
 
     if cursor is None and featured_items_out:
-        take = min(int(featured_take), len(featured_items_out), int(limit))
+        take = min(int(pinned_take), len(featured_items_out), int(limit))
         normal_limit = max(0, int(limit) - take)
         normal_out = items[:normal_limit]
         out = featured_items_out[:take] + normal_out
@@ -949,7 +1002,7 @@ def react(
 
     # Append analytics event (best-effort, even if deduped).
     try:
-        log_event(
+        ev = log_event(
             db,
             type="reaction_click",
             user_id=user_id,
@@ -963,6 +1016,12 @@ def react(
             },
             now=now,
         )
+        try:
+            from neuroleague_api.quests_engine import apply_event_to_quests
+
+            apply_event_to_quests(db, event=ev)
+        except Exception:  # noqa: BLE001
+            pass
         db.commit()
     except Exception:  # noqa: BLE001
         try:

@@ -1887,19 +1887,39 @@ def main() -> None:
             content_type="application/json",
         )
 
+        # Hero clips for first-session feed boost. Stored under /api/assets/ops/hero_clips.json.
+        hero_clips = {
+            "generated_at": datetime.now(UTC).isoformat(),
+            "ruleset_version": settings.ruleset_version,
+            "by_mode": {
+                "1v1": [f"r_seed_{i:03d}" for i in range(1, 6)],
+                "team": [f"r_seed_{i:03d}" for i in range(11, 16)],
+            },
+        }
+        get_storage_backend().put_bytes(
+            key="ops/hero_clips.json",
+            data=orjson.dumps(
+                hero_clips, option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS
+            ),
+            content_type="application/json",
+        )
+
         # Launch-week engine defaults: quests + a small featured set (safe, idempotent).
+        # Daily quests v0 (P2): light meta to bring users back tomorrow.
         _ensure_cosmetic(
-            session, cosmetic_id="badge_quest_daily_play_1", name="Daily Quest: Play 1"
+            session,
+            cosmetic_id="badge_quest_daily_beat_this_3",
+            name="Daily Quest: Beat This x3",
         )
         _ensure_cosmetic(
             session,
-            cosmetic_id="badge_quest_daily_watch_1",
-            name="Daily Quest: Watch 1",
+            cosmetic_id="badge_quest_daily_share_reply_1",
+            name="Daily Quest: Share 1 Reply",
         )
         _ensure_cosmetic(
             session,
-            cosmetic_id="badge_quest_daily_remix_or_beat_1",
-            name="Daily Quest: Remix/Beat 1",
+            cosmetic_id="badge_quest_daily_react_3",
+            name="Daily Quest: React x3",
         )
         _ensure_cosmetic(
             session,
@@ -1920,33 +1940,53 @@ def main() -> None:
         _ensure_quest(
             session,
             cadence="daily",
-            key="play_1",
-            title="Play 1 match",
-            description="Complete 1 match (ranked or challenge).",
-            goal_count=1,
+            key="beat_this_3",
+            title="Beat This x3",
+            description="Complete 3 Beat This challenges.",
+            goal_count=3,
             event_type="match_done",
-            reward_cosmetic_id="badge_quest_daily_play_1",
+            filters={"queue_type": {"eq": "challenge"}},
+            reward_cosmetic_id="badge_quest_daily_beat_this_3",
         )
         _ensure_quest(
             session,
             cadence="daily",
-            key="watch_1",
-            title="Watch 1 clip",
-            description="Watch 1 clip to completion.",
+            key="share_reply_1",
+            title="Share 1 reply",
+            description="Share a reply clip once.",
             goal_count=1,
-            event_type="clip_completion",
-            reward_cosmetic_id="badge_quest_daily_watch_1",
+            event_type="reply_clip_shared",
+            reward_cosmetic_id="badge_quest_daily_share_reply_1",
         )
         _ensure_quest(
             session,
             cadence="daily",
-            key="remix_or_beat_1",
-            title="Remix or Beat This",
-            description="Remix a build or accept a Beat This challenge.",
-            goal_count=1,
-            event_type="quest_remix_or_beat",
-            reward_cosmetic_id="badge_quest_daily_remix_or_beat_1",
+            key="react_3",
+            title="React x3",
+            description="React to clips 3 times.",
+            goal_count=3,
+            event_type="reaction_click",
+            reward_cosmetic_id="badge_quest_daily_react_3",
         )
+
+        # Deactivate legacy daily quests (kept for history).
+        deactivate_now = datetime.now(UTC)
+        for legacy_key in ("play_1", "watch_1", "remix_or_beat_1"):
+            legacy = session.scalar(
+                select(Quest)
+                .where(Quest.cadence == "daily")
+                .where(Quest.key == legacy_key)
+                .limit(1)
+            )
+            if not legacy:
+                continue
+            end = legacy.active_to
+            end_utc = None
+            if end is not None:
+                end_utc = end.replace(tzinfo=UTC) if end.tzinfo is None else end.astimezone(UTC)
+            if end_utc is None or end_utc > deactivate_now:
+                legacy.active_to = deactivate_now
+                session.add(legacy)
 
         _ensure_quest(
             session,
