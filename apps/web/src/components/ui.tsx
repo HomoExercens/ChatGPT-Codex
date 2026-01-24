@@ -101,13 +101,12 @@ export const CardContent: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({
   </div>
 );
 
-interface BadgeProps {
+interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
   variant?: 'success' | 'warning' | 'error' | 'info' | 'neutral' | 'brand';
   children: React.ReactNode;
-  className?: string;
 }
 
-export const Badge: React.FC<BadgeProps> = ({ variant = 'neutral', children, className = '' }) => {
+export const Badge: React.FC<BadgeProps> = ({ variant = 'neutral', children, className = '', ...props }) => {
   const styles = {
     success: 'bg-green-100 text-green-700 border-green-200',
     warning: 'bg-amber-100 text-amber-700 border-amber-200',
@@ -120,6 +119,7 @@ export const Badge: React.FC<BadgeProps> = ({ variant = 'neutral', children, cla
   return (
     <span
       className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${styles[variant]} ${className}`}
+      {...props}
     >
       {children}
     </span>

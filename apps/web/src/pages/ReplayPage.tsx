@@ -20,7 +20,7 @@ import {
 
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '../components/ui';
 import { BattleViewport } from '../components/replay/BattleViewport';
-import type { BlueprintOut, MatchDetail, ModifiersMeta, QueueResponse, ReactionCounts, ReactResponse, Replay } from '../api/types';
+import type { BlueprintOut, MatchDetail, ModifiersMeta, QueueResponse, QuestsTodayOut, ReactionCounts, ReactResponse, Replay } from '../api/types';
 import { apiFetch, apiFetchBlob } from '../lib/api';
 import { playSfx, tapJuice, vibrate } from '../lib/juice';
 import { readShareVariants } from '../lib/shareVariants';
@@ -97,6 +97,12 @@ export const ReplayPage: React.FC = () => {
     queryKey: ['me'],
     queryFn: () => apiFetch<{ user_id: string; is_guest: boolean }>('/api/auth/me'),
     staleTime: 60_000,
+  });
+
+  const { data: questsToday } = useQuery({
+    queryKey: ['questsToday'],
+    queryFn: () => apiFetch<QuestsTodayOut>('/api/quests/today'),
+    staleTime: 5_000,
   });
 
   const durationTicks = replay?.end_summary.duration_ticks ?? 0;
@@ -610,6 +616,15 @@ export const ReplayPage: React.FC = () => {
     return null;
   }, [isReplyClip, match?.result]);
 
+  const [questReveal, setQuestReveal] = useState(false);
+  useEffect(() => {
+    if (!isReplyClip) return;
+    if (!match || match.status !== 'done') return;
+    setQuestReveal(false);
+    const handle = window.setTimeout(() => setQuestReveal(true), reduceMotion ? 0 : 180);
+    return () => window.clearTimeout(handle);
+  }, [id, isReplyClip, match, reduceMotion]);
+
   const [resultJuiced, setResultJuiced] = useState(false);
   useEffect(() => {
     if (!isReplyClip) return;
@@ -1069,6 +1084,39 @@ export const ReplayPage: React.FC = () => {
                   <div className="h-full bg-white" style={{ width: `${replyXpProgress}%` }} />
                 </div>
               </div>
+
+              {questsToday?.daily?.length ? (
+                <div className="mt-4 rounded-2xl bg-white/10 border border-white/15 p-4">
+                  <div className="text-[11px] font-black tracking-widest text-white/80 uppercase">
+                    {lang === 'ko' ? '오늘의 퀘스트' : "Today's Quests"}
+                  </div>
+                  <div className="mt-2 space-y-2">
+                    {questsToday.daily.slice(0, 3).map((q) => {
+                      const goal = Math.max(1, Number(q.quest.goal_count ?? 1));
+                      const prog = Math.max(0, Number(q.progress_count ?? 0));
+                      const pct = Math.max(0, Math.min(1, prog / goal));
+                      const claimed = Boolean(q.claimed_at);
+                      return (
+                        <div key={q.assignment_id}>
+                          <div className="flex items-center justify-between gap-3 text-[11px]">
+                            <div className="font-bold text-white/90 truncate">{q.quest.title}</div>
+                            <div className="shrink-0 font-mono text-white/70">
+                              {prog}/{goal}
+                              {claimed ? ' ✓' : ''}
+                            </div>
+                          </div>
+                          <div className="mt-1 h-1.5 rounded-full bg-white/20 overflow-hidden">
+                            <div
+                              className="h-full bg-white/90 transition-all duration-700"
+                              style={{ width: `${(questReveal ? pct : 0) * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="mt-4 grid grid-cols-1 gap-2">
                 <button

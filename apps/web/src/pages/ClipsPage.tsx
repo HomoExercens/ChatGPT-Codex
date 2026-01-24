@@ -1,11 +1,21 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Heart, MessageCircle, Share2, Sparkles, Volume2, VolumeX, Wand2, Zap } from 'lucide-react';
 
 import { CreatureSilhouettes } from '../components/CreatureSilhouettes';
 import { Badge, BottomSheet, Button } from '../components/ui';
-import type { ClipEventResponse, ClipFeedItem, ClipFeedOut, Mode, RepliesResponse, Replay } from '../api/types';
+import type {
+  ClaimQuestOut,
+  ClipEventResponse,
+  ClipFeedItem,
+  ClipFeedOut,
+  Mode,
+  QuestAssignment,
+  QuestsTodayOut,
+  RepliesResponse,
+  Replay,
+} from '../api/types';
 import { apiFetch } from '../lib/api';
 import { getExperimentVariant, useExperiments } from '../lib/experiments';
 import { tapJuice } from '../lib/juice';
@@ -31,6 +41,7 @@ type ClipShareUrlOut = {
 
 const clampIndex = (idx: number, total: number) => Math.max(0, Math.min(total - 1, idx));
 const FTUE_KEY = 'neuroleague.ftue.play.v1.dismissed';
+const HERO_FEED_KEY = 'neuroleague.play.hero_feed.v1.seen';
 const TICKS_PER_SEC = 20;
 
 type HudOutcome = 'win' | 'loss' | 'draw';
@@ -193,6 +204,7 @@ function buildClipHudData(params: {
 
 export const ClipsPage: React.FC = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const lang = useSettingsStore((s) => s.language);
   const reduceMotion = useSettingsStore((s) => s.reduceMotion);
   const soundEnabled = useSettingsStore((s) => s.soundEnabled);
@@ -201,6 +213,13 @@ export const ClipsPage: React.FC = () => {
   const [ftueOpen, setFtueOpen] = useState(() => {
     try {
       return localStorage.getItem(FTUE_KEY) !== '1';
+    } catch {
+      return true;
+    }
+  });
+  const [heroEligible] = useState(() => {
+    try {
+      return localStorage.getItem(HERO_FEED_KEY) !== '1';
     } catch {
       return true;
     }
@@ -232,13 +251,14 @@ export const ClipsPage: React.FC = () => {
     isFetchingNextPage,
     isFetching,
   } = useInfiniteQuery({
-    queryKey: ['clipsFeed', mode, sort, feedAlgo],
+    queryKey: ['clipsFeed', mode, sort, feedAlgo, heroEligible ? 'hero' : 'normal'],
     queryFn: ({ pageParam }) => {
       const qp = new URLSearchParams();
       qp.set('mode', mode);
       qp.set('sort', sort);
       qp.set('algo', feedAlgo);
       qp.set('limit', '12');
+      if (!pageParam && heroEligible) qp.set('hero', '1');
       if (pageParam) qp.set('cursor', String(pageParam));
       return apiFetch<ClipFeedOut>(`/api/clips/feed?${qp.toString()}`);
     },
@@ -249,10 +269,57 @@ export const ClipsPage: React.FC = () => {
 
   const clips: ClipFeedItem[] = useMemo(() => (data?.pages ?? []).flatMap((p) => p.items ?? []), [data?.pages]);
 
+  useEffect(() => {
+    if (!heroEligible) return;
+    if (!data?.pages?.length) return;
+    try {
+      localStorage.setItem(HERO_FEED_KEY, '1');
+    } catch {
+      // ignore
+    }
+  }, [data?.pages?.length, heroEligible]);
+
   const { data: me } = useQuery({
     queryKey: ['me'],
     queryFn: () => apiFetch<{ user_id: string }>('/api/auth/me'),
     staleTime: 60_000,
+  });
+
+  const { data: questsToday } = useQuery({
+    queryKey: ['questsToday'],
+    queryFn: () => apiFetch<QuestsTodayOut>('/api/quests/today'),
+    staleTime: 5_000,
+  });
+
+  const claimQuestMutation = useMutation({
+    mutationFn: async (assignment: QuestAssignment) =>
+      apiFetch<ClaimQuestOut>('/api/quests/claim', {
+        method: 'POST',
+        body: JSON.stringify({ assignment_id: assignment.assignment_id }),
+      }),
+    onSuccess: async (_out, assignment) => {
+      await queryClient.invalidateQueries({ queryKey: ['questsToday'] });
+      try {
+        await apiFetch('/api/events/track', {
+          method: 'POST',
+          body: JSON.stringify({
+            type: 'quest_claimed',
+            source: 'play',
+            meta: {
+              assignment_id: assignment.assignment_id,
+              quest_id: assignment.quest.id,
+              quest_key: assignment.quest.key,
+              cadence: assignment.quest.cadence,
+              period_key: assignment.period_key,
+            },
+          }),
+        });
+      } catch {
+        // best-effort
+      }
+      toast.success(lang === 'ko' ? '보상 획득!' : 'Reward claimed!');
+    },
+    onError: (e) => toast.error(lang === 'ko' ? '보상 수령 실패' : 'Claim failed', e instanceof Error ? e.message : String(e)),
   });
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -266,6 +333,7 @@ export const ClipsPage: React.FC = () => {
   const view3sStart = useRef<number>(0);
   const completed = useRef<Set<string>>(new Set());
   const [slideState, setSlideState] = useState<Record<string, SlideState>>({});
+  const [questsOpen, setQuestsOpen] = useState(false);
   const [quickRemixOpen, setQuickRemixOpen] = useState(false);
   const [repliesOpen, setRepliesOpen] = useState(false);
   const [repliesTab, setRepliesTab] = useState<'top' | 'recent'>('top');
@@ -302,11 +370,55 @@ export const ClipsPage: React.FC = () => {
     moments: ClipHudMoment[];
     fired: Set<number>;
     lastTime: number;
+    strongCount: number;
   } | null>(null);
   const [hudFlash, setHudFlash] = useState<{ id: string; label: string; tone: 'kill' | 'crit' | 'synergy' } | null>(null);
   const [damageFloats, setDamageFloats] = useState<DamageFloat[]>([]);
   const fxCounter = useRef(0);
   const juiceLockUntil = useRef<number>(0);
+  const [lowPerf, setLowPerf] = useState(false);
+  const perfState = useRef<{ lastT: number; slowStreak: number; fastStreak: number; low: boolean }>({
+    lastT: 0,
+    slowStreak: 0,
+    fastStreak: 0,
+    low: false,
+  });
+
+  useEffect(() => {
+    if (reduceMotion) {
+      setLowPerf(false);
+      perfState.current = { lastT: 0, slowStreak: 0, fastStreak: 0, low: false };
+      return;
+    }
+
+    let raf = 0;
+    const step = (t: number) => {
+      const st = perfState.current;
+      const last = st.lastT;
+      st.lastT = t;
+      if (last > 0) {
+        const dt = t - last;
+        const slow = dt > 55;
+        const fast = dt < 40;
+
+        st.slowStreak = slow ? st.slowStreak + 1 : Math.max(0, st.slowStreak - 1);
+        st.fastStreak = fast ? st.fastStreak + 1 : Math.max(0, st.fastStreak - 1);
+
+        if (!st.low && st.slowStreak >= 10) {
+          st.low = true;
+          st.fastStreak = 0;
+          setLowPerf(true);
+        } else if (st.low && st.fastStreak >= 20) {
+          st.low = false;
+          st.slowStreak = 0;
+          setLowPerf(false);
+        }
+      }
+      raf = window.requestAnimationFrame(step);
+    };
+    raf = window.requestAnimationFrame(step);
+    return () => window.cancelAnimationFrame(raf);
+  }, [reduceMotion]);
 
   useEffect(() => {
     if (!activeClip?.replay_id || !activeHud) {
@@ -320,6 +432,7 @@ export const ClipsPage: React.FC = () => {
       moments: activeHud.moments,
       fired: new Set<number>(),
       lastTime: 0,
+      strongCount: 0,
     };
     setHudFlash(null);
     setDamageFloats([]);
@@ -528,7 +641,7 @@ export const ClipsPage: React.FC = () => {
   };
 
   const triggerHitStop = (video: HTMLVideoElement, ms: number, slowmo?: { rate: number; ms: number }) => {
-    if (reduceMotion) return;
+    if (reduceMotion || lowPerf) return;
     const now = Date.now();
     if (now < juiceLockUntil.current) return;
     juiceLockUntil.current = now + ms + (slowmo?.ms ?? 0) + 80;
@@ -567,6 +680,7 @@ export const ClipsPage: React.FC = () => {
     // Reset triggers on loop.
     if (t + 0.1 < rt.lastTime) {
       rt.fired.clear();
+      rt.strongCount = 0;
       setHudFlash(null);
       setDamageFloats([]);
     }
@@ -596,23 +710,43 @@ export const ClipsPage: React.FC = () => {
       }, 700);
 
       if (reduceMotion) continue;
+      if (rt.strongCount >= 2) continue;
+      rt.strongCount += 1;
       if (m.kind === 'kill') {
-        triggerShake(340);
+        triggerShake(lowPerf ? 160 : 340);
         triggerHitStop(video, 70, { rate: 0.72, ms: 240 });
       } else if (m.kind === 'crit') {
-        triggerShake(240);
+        triggerShake(lowPerf ? 140 : 240);
         triggerHitStop(video, 50, { rate: 0.86, ms: 160 });
       } else if (m.kind === 'synergy') {
-        triggerShake(180);
+        triggerShake(lowPerf ? 120 : 180);
         triggerHitStop(video, 30, { rate: 0.9, ms: 120 });
       }
     }
   };
 
+  const questCard = useMemo(() => {
+    const daily = questsToday?.daily ?? [];
+    if (!daily.length) return null;
+    const completedCount = daily.filter((q) => (q.progress_count ?? 0) >= (q.quest.goal_count ?? 1)).length;
+    const claimableCount = daily.filter((q) => q.claimable).length;
+    const primary =
+      daily.find((q) => q.claimable) ??
+      daily.find((q) => (q.progress_count ?? 0) < (q.quest.goal_count ?? 1)) ??
+      daily[0] ??
+      null;
+    if (!primary) return null;
+    const goal = Math.max(1, Number(primary.quest.goal_count ?? 1));
+    const prog = Math.max(0, Number(primary.progress_count ?? 0));
+    const pct = Math.max(0, Math.min(1, prog / goal));
+    return { daily, completedCount, claimableCount, primary, goal, prog, pct };
+  }, [questsToday?.daily]);
+
   return (
     <>
       <div className="relative h-[calc(100dvh-var(--nl-tabbar-h)-env(safe-area-inset-bottom))] bg-black overflow-hidden">
-      <div className="absolute top-0 left-0 right-0 z-20 px-4 pt-[calc(env(safe-area-inset-top)+12px)] pb-4 flex items-center justify-between">
+        <div className="absolute top-0 left-0 right-0 z-20 px-4 pt-[calc(env(safe-area-inset-top)+12px)] pb-3">
+          <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="text-white font-extrabold tracking-tight">{title}</div>
             <Badge variant="neutral" className="bg-white/10 text-white border-transparent">
@@ -688,6 +822,55 @@ export const ClipsPage: React.FC = () => {
               New
             </Button>
           </div>
+          </div>
+
+          {questCard ? (
+            <button
+              type="button"
+              data-testid="today-quest-card"
+              className="mt-3 w-full max-w-md pointer-events-auto rounded-2xl bg-white/10 border border-white/15 backdrop-blur px-3 py-2 text-left"
+              onClick={() => {
+                tapJuice();
+                setQuestsOpen(true);
+                apiFetch('/api/events/track', {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    type: 'quest_viewed',
+                    source: 'play',
+                    meta: {
+                      daily_period_key: questsToday?.daily_period_key ?? null,
+                      weekly_period_key: questsToday?.weekly_period_key ?? null,
+                    },
+                  }),
+                }).catch(() => {
+                  // best-effort
+                });
+              }}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-[11px] font-black tracking-widest text-white/80 uppercase">
+                  {lang === 'ko' ? '오늘의 퀘스트' : "Today's Quests"}
+                </div>
+                <div className="text-[11px] font-mono text-white/70">
+                  {questCard.completedCount}/{questCard.daily.length}
+                  {questCard.claimableCount > 0 ? (
+                    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-white/15 border border-white/15 text-white font-black">
+                      CLAIM
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+              <div className="mt-1 text-sm text-white font-extrabold truncate">{questCard.primary.quest.title}</div>
+              <div className="mt-1 flex items-center gap-2">
+                <div className="flex-1 h-1.5 rounded-full bg-white/20 overflow-hidden">
+                  <div className="h-full bg-white/90 transition-all duration-700" style={{ width: `${questCard.pct * 100}%` }} />
+                </div>
+                <div className="text-[11px] font-mono text-white/70">
+                  {questCard.prog}/{questCard.goal}
+                </div>
+              </div>
+            </button>
+          ) : null}
         </div>
 
         {ftueOpen ? (
@@ -922,13 +1105,21 @@ export const ClipsPage: React.FC = () => {
 	                      <div className="text-white text-lg font-extrabold leading-tight">
 	                        {item.blueprint_name ?? 'Untitled Build'}
 	                      </div>
-	                      <div className="flex items-center gap-2">
-	                        <CreatureSilhouettes seed={item.replay_id} count={item.mode === 'team' ? 3 : 1} />
-	                        {item.featured ? (
-	                          <Badge variant="neutral" className="bg-white/10 text-white border-transparent text-[10px]">
-	                            Featured
-	                          </Badge>
-	                        ) : null}
+                        <div className="flex items-center gap-2">
+                          <CreatureSilhouettes seed={item.replay_id} count={item.mode === 'team' ? 3 : 1} />
+                          {item.hero ? (
+                            <Badge
+                              data-testid="hero-badge"
+                              variant="neutral"
+                              className="bg-white/10 text-white border-transparent text-[10px]"
+                            >
+                              HERO
+                            </Badge>
+                          ) : item.featured ? (
+                            <Badge variant="neutral" className="bg-white/10 text-white border-transparent text-[10px]">
+                              Featured
+                            </Badge>
+                          ) : null}
 	                      </div>
 	                      <div className="flex flex-wrap gap-1">
 	                        {(item.tags ?? []).slice(0, 4).map((tag) => (
@@ -1059,6 +1250,58 @@ export const ClipsPage: React.FC = () => {
           <span>{lang === 'ko' ? '스크롤 또는 ↑/↓ 로 이동' : 'Scroll or use ↑/↓ to navigate'}</span>
         </div>
       </div>
+
+      <BottomSheet
+        open={questsOpen}
+        title={lang === 'ko' ? '오늘의 퀘스트' : "Today's Quests"}
+        onClose={() => setQuestsOpen(false)}
+      >
+        <div className="space-y-3">
+          {(questsToday?.daily ?? []).map((a) => {
+            const goal = Math.max(1, Number(a.quest.goal_count ?? 1));
+            const prog = Math.max(0, Number(a.progress_count ?? 0));
+            const pct = Math.max(0, Math.min(1, prog / goal));
+            const claimed = Boolean(a.claimed_at);
+            return (
+              <div key={a.assignment_id} className="rounded-2xl border border-slate-200 bg-slate-50/60 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-extrabold text-slate-900 truncate">{a.quest.title}</div>
+                    <div className="text-xs text-slate-600 mt-0.5 line-clamp-2">{a.quest.description}</div>
+                  </div>
+                  <div className="shrink-0 text-[11px] font-mono text-slate-600">
+                    {prog}/{goal}
+                  </div>
+                </div>
+                <div className="mt-2 h-2 w-full rounded-full bg-slate-200 overflow-hidden">
+                  <div className="h-full bg-brand-600 transition-all duration-700" style={{ width: `${pct * 100}%` }} />
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  {claimed ? (
+                    <span className="text-xs font-bold text-slate-500">Claimed</span>
+                  ) : a.claimable ? (
+                    <span className="text-xs font-bold text-green-600">Ready!</span>
+                  ) : (
+                    <span className="text-xs font-bold text-slate-500">In progress</span>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={a.claimable ? 'primary' : 'secondary'}
+                    disabled={claimed || !a.claimable || claimQuestMutation.isPending}
+                    onClick={() => {
+                      tapJuice();
+                      claimQuestMutation.mutate(a);
+                    }}
+                  >
+                    {claimed ? 'Claimed' : a.claimable ? (lang === 'ko' ? '보상 받기' : 'Claim') : lang === 'ko' ? '진행 중' : 'Progress'}
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </BottomSheet>
 
       <BottomSheet open={quickRemixOpen} title="Quick Remix" onClose={() => setQuickRemixOpen(false)}>
         {activeClip ? (

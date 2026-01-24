@@ -168,6 +168,7 @@ export type ClipFeedItem = {
   stats: ClipStats;
   tags: string[];
   featured?: boolean;
+  hero?: boolean;
 };
 
 export type ClipFeedOut = {

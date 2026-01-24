@@ -307,6 +307,24 @@ def claim(
             user_id=str(user_id),
             request=None,
             payload={
+                "assignment_id": str(a.id),
+                "quest_id": str(q.id),
+                "cadence": str(q.cadence),
+                "key": str(q.key),
+                "period_key": str(a.period_key),
+                "reward_cosmetic_id": cosmetic_id,
+                "reward_granted": granted,
+                "cosmetic_points_awarded": points_awarded,
+            },
+            now=now,
+        )
+        log_event(
+            db,
+            type="quest_claimed",
+            user_id=str(user_id),
+            request=None,
+            payload={
+                "assignment_id": str(a.id),
                 "quest_id": str(q.id),
                 "cadence": str(q.cadence),
                 "key": str(q.key),
@@ -331,6 +349,68 @@ def claim(
         cosmetic_points_awarded=points_awarded,
         cosmetic_points_balance=int(wallet.cosmetic_points or 0),
     )
+
+
+@router.post("/claim/{quest_id}", response_model=ClaimQuestOut)
+def claim_by_quest(
+    quest_id: str,
+    user_id: str = CurrentUserId,
+    db: Session = DBSession,
+) -> ClaimQuestOut:
+    now = datetime.now(UTC)
+    overrides = load_quest_overrides()
+    daily_key = kst_today_key(now_utc=now)
+    weekly_key = kst_week_key(now_utc=now)
+
+    daily = select_quests_for_period(
+        db,
+        cadence="daily",
+        period_key=daily_key,
+        limit=3,
+        now=now,
+        overrides=overrides,
+    )
+    weekly = select_quests_for_period(
+        db,
+        cadence="weekly",
+        period_key=weekly_key,
+        limit=3,
+        now=now,
+        overrides=overrides,
+    )
+
+    daily_assignments: list[QuestAssignment] = []
+    weekly_assignments: list[QuestAssignment] = []
+    if daily:
+        daily_assignments = ensure_assignments(
+            db, user_id=user_id, period_key=daily_key, quests=daily, now=now
+        )
+    if weekly:
+        weekly_assignments = ensure_assignments(
+            db, user_id=user_id, period_key=weekly_key, quests=weekly, now=now
+        )
+    if daily_assignments or weekly_assignments:
+        db.commit()
+
+    selected_ids = {str(q.id) for q in (daily + weekly)}
+    q = db.get(Quest, str(quest_id))
+    if q is None:
+        q = db.scalar(select(Quest).where(Quest.key == str(quest_id)).limit(1))
+    if q is None or str(q.id) not in selected_ids:
+        raise HTTPException(status_code=404, detail="quest_not_selected")
+
+    period_key = daily_key if str(q.cadence) == "daily" else weekly_key
+    a = db.scalar(
+        select(QuestAssignment)
+        .where(QuestAssignment.user_id == str(user_id))
+        .where(QuestAssignment.period_key == str(period_key))
+        .where(QuestAssignment.quest_id == str(q.id))
+        .limit(1)
+    )
+    if a is None:
+        raise HTTPException(status_code=404, detail="assignment_not_found")
+
+    return claim(payload=ClaimQuestIn(assignment_id=str(a.id)), user_id=user_id, db=db)
 
 
 @ops_router.get("", response_model=OpsQuestsOut)
