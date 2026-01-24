@@ -93,6 +93,7 @@ class ProgressOut(BaseModel):
     level: int = 1
     streak_days: int = 0
     last_active_day: str | None = None
+    streak_freeze_tokens: int = 0
     quests_claimed_total: int = 0
     perfect_wins: int = 0
     one_shot_wins: int = 0
@@ -244,6 +245,7 @@ def profile(
             last_active_day=progress.last_active_day.isoformat()
             if progress.last_active_day
             else None,
+            streak_freeze_tokens=int(progress.streak_freeze_tokens or 0),
             quests_claimed_total=int(progress.quests_claimed_total or 0),
             perfect_wins=int(progress.perfect_wins or 0),
             one_shot_wins=int(progress.one_shot_wins or 0),

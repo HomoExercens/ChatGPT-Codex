@@ -659,6 +659,7 @@ def load_experiment_stats(
             # Mobile FTUE / play.
             "play_open",
             "clip_view_3s",
+            "video_load_fail",
             "quest_claimed",
             # Playtest.
             "playtest_opened",

@@ -94,6 +94,9 @@ class ClaimQuestOut(BaseModel):
     level_up: bool = False
     streak_days: int = 0
     streak_extended: bool = False
+    streak_protected: bool = False
+    streak_freeze_tokens: int = 0
+    streak_freeze_awarded: bool = False
     badges_unlocked: list[str] = Field(default_factory=list)
 
 
@@ -421,6 +424,9 @@ def claim(
         level_up=bool(getattr(reward, "level_up", False) or False),
         streak_days=int(getattr(reward, "streak_days", 0) or 0),
         streak_extended=bool(getattr(reward, "streak_extended", False) or False),
+        streak_protected=bool(getattr(reward, "streak_protected", False) or False),
+        streak_freeze_tokens=int(getattr(reward, "streak_freeze_tokens", 0) or 0),
+        streak_freeze_awarded=bool(getattr(reward, "streak_freeze_awarded", False) or False),
         badges_unlocked=list(getattr(reward, "badges_unlocked", []) or []),
     )
 

@@ -49,6 +49,25 @@ type ExperimentsOut = {
   experiments: ExperimentOut[];
 };
 
+type HeroFeedExperimentSummaryOut = {
+  range: string;
+  experiment_key: string;
+  variants: Record<
+    string,
+    {
+      assigned: number;
+      kpis: Record<string, { converted: number; rate: number }>;
+    }
+  >;
+  guardrails: {
+    http_5xx: number;
+    http_429: number;
+    video_load_fail_events: number;
+    render_jobs_queued: number;
+    render_jobs_running: number;
+  };
+};
+
 type ShortsVariantsOut = {
   range: string;
   start_date: string;
@@ -213,6 +232,14 @@ export const OpsPage: React.FC = () => {
     staleTime: 10_000,
   });
 
+  const { data: heroFeedSummary } = useQuery({
+    queryKey: ['ops', 'metrics', 'experiments', 'hero_feed_v1_summary', range, enabled],
+    queryFn: () =>
+      apiFetch<HeroFeedExperimentSummaryOut>(`/api/ops/metrics/experiments/hero_feed_v1_summary?range=${encodeURIComponent(range)}`),
+    enabled,
+    staleTime: 10_000,
+  });
+
   const { data: experimentsToday } = useQuery({
     queryKey: ['ops', 'metrics', 'experiments', '1d', enabled],
     queryFn: () => apiFetch<ExperimentsOut>('/api/ops/metrics/experiments?range=1d'),
@@ -347,6 +374,9 @@ export const OpsPage: React.FC = () => {
             </a>
             <a className="font-semibold text-brand-700 hover:underline" href="/ops/featured">
               Featured →
+            </a>
+            <a className="font-semibold text-brand-700 hover:underline" href="/ops/hero">
+              Hero Clips →
             </a>
             <a className="font-semibold text-brand-700 hover:underline" href="/ops/build-of-day">
               Build of Day →
@@ -710,6 +740,64 @@ export const OpsPage: React.FC = () => {
                 })
               ) : (
                 <div className="text-sm text-slate-500">No experiments found.</div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FlaskConical size={18} className="text-slate-500" /> Hero Feed v1 (KPI + guardrails)
+              </CardTitle>
+              <Badge variant="neutral">{heroFeedSummary?.range ?? range}</Badge>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {heroFeedSummary ? (
+                <>
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <Badge variant={heroFeedSummary.guardrails.http_5xx > 0 ? 'warning' : 'neutral'}>5xx {heroFeedSummary.guardrails.http_5xx}</Badge>
+                    <Badge variant={heroFeedSummary.guardrails.http_429 > 0 ? 'warning' : 'neutral'}>429 {heroFeedSummary.guardrails.http_429}</Badge>
+                    <Badge variant={heroFeedSummary.guardrails.video_load_fail_events > 0 ? 'warning' : 'neutral'}>
+                      video_load_fail {heroFeedSummary.guardrails.video_load_fail_events}
+                    </Badge>
+                    <Badge variant="neutral">
+                      render backlog {heroFeedSummary.guardrails.render_jobs_queued + heroFeedSummary.guardrails.render_jobs_running} (
+                      {heroFeedSummary.guardrails.render_jobs_queued}q/{heroFeedSummary.guardrails.render_jobs_running}r)
+                    </Badge>
+                  </div>
+
+                  <div className="space-y-2">
+                    {Object.entries(heroFeedSummary.variants ?? {}).map(([vid, v]) => {
+                      const k = v.kpis ?? {};
+                      const clip3 = k.clip_view_3s?.rate ?? 0;
+                      const beat = k.beat_this_click?.rate ?? 0;
+                      const done = k.match_done?.rate ?? 0;
+                      const reply = k.reply_clip_shared?.rate ?? 0;
+                      const quest = k.quest_claimed?.rate ?? 0;
+                      const vfail = k.video_load_fail?.rate ?? 0;
+                      return (
+                        <div key={vid} className="rounded-xl border border-slate-200 bg-white px-3 py-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-sm font-bold text-slate-800">
+                              <span className="font-mono">{vid}</span>
+                            </div>
+                            <Badge variant={v.assigned < 50 ? 'warning' : 'neutral'}>assigned {v.assigned}</Badge>
+                          </div>
+                          <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-slate-600">
+                            <div>clip_view_3s {(clip3 * 100).toFixed(1)}%</div>
+                            <div>beat_this_click {(beat * 100).toFixed(1)}%</div>
+                            <div>match_done {(done * 100).toFixed(1)}%</div>
+                            <div>reply_clip_shared {(reply * 100).toFixed(1)}%</div>
+                            <div>quest_claimed {(quest * 100).toFixed(1)}%</div>
+                            <div>video_load_fail {(vfail * 100).toFixed(1)}%</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div className="text-sm text-slate-500">No summary yet.</div>
               )}
             </CardContent>
           </Card>

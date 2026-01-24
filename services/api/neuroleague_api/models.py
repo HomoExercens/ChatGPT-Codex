@@ -52,6 +52,8 @@ class UserProgress(Base):
     level: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     streak_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_active_day: Mapped[date | None] = mapped_column(Date, nullable=True)
+    streak_freeze_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    streak_freeze_awarded_week: Mapped[str | None] = mapped_column(String, nullable=True)
     quests_claimed_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     perfect_wins: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     one_shot_wins: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
