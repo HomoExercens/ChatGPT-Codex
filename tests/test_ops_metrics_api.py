@@ -46,6 +46,15 @@ def test_ops_metrics_endpoints_shape(api_client) -> None:
     j3 = r3.json()
     assert isinstance(j3.get("experiments"), list)
 
+    r3b = api_client.get(
+        "/api/ops/metrics/experiments/hero_feed_v1_summary?range=7d", headers=headers
+    )
+    assert r3b.status_code == 200
+    j3b = r3b.json()
+    assert j3b.get("experiment_key") == "hero_feed_v1"
+    assert isinstance(j3b.get("variants"), dict)
+    assert isinstance(j3b.get("guardrails"), dict)
+
     r4 = api_client.post("/api/ops/metrics/rollup?range=7d", headers=headers)
     assert r4.status_code == 200
     j4 = r4.json()

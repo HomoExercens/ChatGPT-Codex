@@ -70,3 +70,37 @@ def test_ops_hero_clips_recompute_writes_ops_files(api_client) -> None:
     assert (root / "ops" / "hero_clips.override.json").exists()
     assert (root / "ops" / "hero_clips.auto.json").exists()
     assert (root / "ops" / "hero_clips.json").exists()
+
+
+def test_ops_hero_clips_candidates_requires_admin(api_client) -> None:
+    os.environ.pop("NEUROLEAGUE_ADMIN_TOKEN", None)
+    r = api_client.get("/api/ops/hero_clips/candidates?range=14d")
+    assert r.status_code == 401
+
+
+def test_ops_hero_clips_candidates_shape_and_override_update(api_client) -> None:
+    os.environ["NEUROLEAGUE_ADMIN_TOKEN"] = "admintest"
+
+    r0 = api_client.post("/api/ops/hero_clips/recompute", headers={"X-Admin-Token": "admintest"})
+    assert r0.status_code == 200
+
+    r1 = api_client.get("/api/ops/hero_clips/candidates?range=14d", headers={"X-Admin-Token": "admintest"})
+    assert r1.status_code == 200
+    j1 = r1.json()
+    assert isinstance(j1.get("by_mode"), dict)
+    assert "1v1" in j1["by_mode"]
+    assert isinstance(j1["by_mode"]["1v1"].get("items"), list)
+    assert isinstance(j1["by_mode"]["1v1"].get("pinned"), list)
+    assert isinstance(j1["by_mode"]["1v1"].get("excluded"), list)
+
+    r2 = api_client.post(
+        "/api/ops/hero_clips/override",
+        headers={"X-Admin-Token": "admintest"},
+        json={"mode": "1v1", "op": "pin", "replay_id": "r_test_seed"},
+    )
+    assert r2.status_code == 200
+
+    r3 = api_client.get("/api/ops/hero_clips/candidates?range=14d", headers={"X-Admin-Token": "admintest"})
+    assert r3.status_code == 200
+    j3 = r3.json()
+    assert "r_test_seed" in (j3.get("by_mode", {}).get("1v1", {}).get("pinned") or [])

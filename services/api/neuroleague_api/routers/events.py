@@ -76,6 +76,7 @@ EventType = Literal[
     "clip_remix_click",
     "clip_open_ranked",
     "clip_completion",
+    "video_load_fail",
     # Experiments.
     "experiment_exposed",
     "experiment_converted",
