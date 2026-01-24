@@ -39,10 +39,6 @@ EventType = Literal[
     # Mega-hit FTUE (mobile).
     "play_open",
     "ftue_completed",
-    # Quests.
-    "quest_viewed",
-    "quest_progressed",
-    "quest_claimed",
     # Playtest / Seed Pack.
     "playtest_opened",
     "playtest_step_completed",

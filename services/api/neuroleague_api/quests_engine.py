@@ -12,7 +12,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from neuroleague_api.core.config import Settings
-from neuroleague_api.eventlog import log_event
 from neuroleague_api.models import Event, Quest, QuestAssignment, QuestEventApplied
 from neuroleague_api.storage_backend import get_storage_backend, guess_content_type
 
@@ -279,7 +278,6 @@ def apply_event_to_quests(session: Session, *, event: Event) -> ApplyResult:
     weekly_key = f"{int(year)}W{int(week):02d}"
 
     overrides = load_quest_overrides()
-    progressed: list[dict[str, Any]] = []
 
     def run_cadence(cadence: Cadence, period_key: str, limit: int) -> int:
         selected = select_quests_for_period(
@@ -342,43 +340,12 @@ def apply_event_to_quests(session: Session, *, event: Event) -> ApplyResult:
             if goal > 0:
                 a.progress_count = min(int(a.progress_count), goal)
             session.add(a)
-            progressed.append(
-                {
-                    "cadence": str(cadence),
-                    "period_key": str(period_key),
-                    "quest_id": str(q.id),
-                    "quest_key": str(q.key),
-                    "assignment_id": str(a.id),
-                    "progress_count": int(a.progress_count or 0),
-                    "goal_count": int(q.goal_count or 1),
-                }
-            )
             applied += 1
         return applied
 
     applied = 0
     applied += run_cadence("daily", daily_key, 3)
     applied += run_cadence("weekly", weekly_key, 3)
-
-    if applied > 0 and progressed:
-        try:
-            log_event(
-                session,
-                type="quest_progressed",
-                user_id=str(event.user_id),
-                request=None,
-                payload={
-                    "trigger_event_id": str(event.id),
-                    "trigger_event_type": str(event.type),
-                    "applied": int(applied),
-                    "progressed": progressed[:12],
-                    "daily_period_key": str(daily_key),
-                    "weekly_period_key": str(weekly_key),
-                },
-                now=now,
-            )
-        except Exception:  # noqa: BLE001
-            pass
     return ApplyResult(
         applied=applied, daily_period_key=daily_key, weekly_period_key=weekly_key
     )
