@@ -308,9 +308,6 @@ export type ClaimQuestOut = {
   level_up?: boolean;
   streak_days?: number;
   streak_extended?: boolean;
-  streak_protected?: boolean;
-  streak_freeze_tokens?: number;
-  streak_freeze_awarded?: boolean;
   badges_unlocked?: string[];
 };
 

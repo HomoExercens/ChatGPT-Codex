@@ -42,7 +42,6 @@ from neuroleague_api.models import (
     Blueprint,
     DiscordOutbox,
     Event,
-    HttpErrorEvent,
     Match,
     ModerationHide,
     RenderJob,
@@ -1393,116 +1392,6 @@ def metrics_experiments(
             for it in items
             if isinstance(it, dict)
         ],
-    )
-
-
-class HeroFeedGuardrailsOut(BaseModel):
-    http_5xx: int = 0
-    http_429: int = 0
-    video_load_fail_events: int = 0
-    render_jobs_queued: int = 0
-    render_jobs_running: int = 0
-
-
-class HeroFeedVariantKpisOut(BaseModel):
-    assigned: int = 0
-    kpis: dict[str, dict[str, float | int]] = Field(default_factory=dict)
-
-
-class HeroFeedExperimentSummaryOut(BaseModel):
-    range: str
-    experiment_key: str = "hero_feed_v1"
-    variants: dict[str, HeroFeedVariantKpisOut] = Field(default_factory=dict)
-    guardrails: HeroFeedGuardrailsOut = Field(default_factory=HeroFeedGuardrailsOut)
-
-
-@router.get("/metrics/experiments/hero_feed_v1_summary", response_model=HeroFeedExperimentSummaryOut)
-def hero_feed_v1_summary(
-    range: str = "7d",
-    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
-    db: Session = DBSession,
-) -> HeroFeedExperimentSummaryOut:
-    _require_admin(x_admin_token)
-    days = _parse_days(range)
-    now = datetime.now(UTC)
-    cutoff = now - timedelta(days=int(days))
-
-    stats = load_experiment_stats(db, experiment_keys=["hero_feed_v1"], days=int(days))
-    exp = stats[0] if stats and isinstance(stats[0], dict) else {}
-    variants_in = exp.get("variants") if isinstance(exp.get("variants"), list) else []
-
-    kpi_keys = [
-        "clip_view_3s",
-        "beat_this_click",
-        "match_done",
-        "reply_clip_shared",
-        "quest_claimed",
-        "video_load_fail",
-    ]
-
-    variants_out: dict[str, HeroFeedVariantKpisOut] = {}
-    for v in variants_in:
-        if not isinstance(v, dict):
-            continue
-        vid = str(v.get("id") or "control")
-        assigned = int(v.get("assigned") or 0)
-        kpis_raw = v.get("kpis") if isinstance(v.get("kpis"), dict) else {}
-        kpis_filtered: dict[str, dict[str, float | int]] = {}
-        for k in kpi_keys:
-            row = kpis_raw.get(k) if isinstance(kpis_raw.get(k), dict) else None
-            if not row:
-                kpis_filtered[k] = {"converted": 0, "rate": 0.0}
-                continue
-            kpis_filtered[k] = {
-                "converted": int(row.get("converted") or 0),
-                "rate": float(row.get("rate") or 0.0),
-            }
-        variants_out[vid] = HeroFeedVariantKpisOut(assigned=assigned, kpis=kpis_filtered)
-
-    http_5xx = int(
-        db.scalar(
-            select(func.count(HttpErrorEvent.id))
-            .where(HttpErrorEvent.created_at >= cutoff)
-            .where(HttpErrorEvent.status >= 500)
-        )
-        or 0
-    )
-    http_429 = int(
-        db.scalar(
-            select(func.count(HttpErrorEvent.id))
-            .where(HttpErrorEvent.created_at >= cutoff)
-            .where(HttpErrorEvent.status == 429)
-        )
-        or 0
-    )
-    video_load_fail_events = int(
-        db.scalar(
-            select(func.count(Event.id))
-            .where(Event.created_at >= cutoff)
-            .where(Event.type == "video_load_fail")
-        )
-        or 0
-    )
-
-    queued = int(
-        db.scalar(select(func.count(RenderJob.id)).where(RenderJob.status == "queued"))
-        or 0
-    )
-    running = int(
-        db.scalar(select(func.count(RenderJob.id)).where(RenderJob.status == "running"))
-        or 0
-    )
-
-    return HeroFeedExperimentSummaryOut(
-        range=f"{days}d",
-        variants=variants_out,
-        guardrails=HeroFeedGuardrailsOut(
-            http_5xx=http_5xx,
-            http_429=http_429,
-            video_load_fail_events=video_load_fail_events,
-            render_jobs_queued=queued,
-            render_jobs_running=running,
-        ),
     )
 
 

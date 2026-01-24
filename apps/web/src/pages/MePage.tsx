@@ -14,7 +14,6 @@ type Progress = {
   level: number;
   streak_days: number;
   last_active_day?: string | null;
-  streak_freeze_tokens: number;
   quests_claimed_total: number;
   perfect_wins: number;
   one_shot_wins: number;
@@ -63,7 +62,6 @@ export const MePage: React.FC = () => {
     level: profile?.progress?.level ?? 1,
     streak_days: profile?.progress?.streak_days ?? 0,
     last_active_day: profile?.progress?.last_active_day ?? null,
-    streak_freeze_tokens: profile?.progress?.streak_freeze_tokens ?? 0,
     quests_claimed_total: profile?.progress?.quests_claimed_total ?? 0,
     perfect_wins: profile?.progress?.perfect_wins ?? 0,
     one_shot_wins: profile?.progress?.one_shot_wins ?? 0,
@@ -103,13 +101,7 @@ export const MePage: React.FC = () => {
               <div className="text-right">
                 <div className="text-xs text-slate-500">Streak</div>
                 <div className="text-lg font-bold text-slate-900">{progress.streak_days}d</div>
-                <div className="mt-1 flex items-center justify-end gap-2">
-                  <Badge variant={progress.streak_freeze_tokens > 0 ? 'brand' : 'neutral'}>
-                    Shield {progress.streak_freeze_tokens}/1
-                  </Badge>
-                </div>
                 <div className="text-[11px] text-slate-500">{progress.last_active_day ? `Last: ${progress.last_active_day}` : '—'}</div>
-                <div className="text-[11px] text-slate-500 mt-1">Shield auto-protects 1 missed day per week (earned from quest claims).</div>
               </div>
             </div>
             <div className="mt-3">

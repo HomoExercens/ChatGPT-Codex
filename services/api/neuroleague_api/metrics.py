@@ -36,7 +36,7 @@ _HTTP_LATENCY_COUNT: dict[tuple[str, str], int] = {}
 _RECENT_ERRORS: deque[tuple[int, str, str, int, str | None]] = deque()
 _RECENT_ERRORS_MAX = 50_000
 
-_INTERESTING_4XX: set[int] = {400, 401, 403, 404, 409, 422, 429}
+_INTERESTING_4XX: set[int] = {400, 401, 403, 404, 409, 422}
 
 
 def inc_http_request(*, path: str, method: str, status: str) -> None:
@@ -117,6 +117,8 @@ def record_http_error_event(
     except Exception:  # noqa: BLE001
         return
     if status_i < 400:
+        return
+    if status_i == 429:
         return
     if status_i < 500 and status_i not in _INTERESTING_4XX:
         return

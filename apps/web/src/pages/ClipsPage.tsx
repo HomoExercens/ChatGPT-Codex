@@ -333,12 +333,10 @@ export const ClipsPage: React.FC = () => {
       const xp = Number(out?.xp_awarded ?? 0);
       const level = Number(out?.level ?? 1);
       const streak = Number(out?.streak_days ?? 0);
-      const shield = Number(out?.streak_freeze_tokens ?? 0);
-      const protectedStreak = Boolean(out?.streak_protected);
       toast.success(
         lang === 'ko'
-          ? `보상 획득! +${xp} XP · Lv.${level} · 스트릭 ${streak}일${protectedStreak ? ' (보호됨)' : ''} · 쉴드 ${shield}/1`
-          : `Reward claimed! +${xp} XP · Lv.${level} · Streak ${streak}d${protectedStreak ? ' (protected)' : ''} · Shield ${shield}/1`
+          ? `보상 획득! +${xp} XP · Lv.${level} · 스트릭 ${streak}일`
+          : `Reward claimed! +${xp} XP · Lv.${level} · Streak ${streak}d`
       );
     },
     onError: (e) => toast.error(lang === 'ko' ? '보상 수령 실패' : 'Claim failed', e instanceof Error ? e.message : String(e)),
@@ -354,7 +352,6 @@ export const ClipsPage: React.FC = () => {
   const view3sTimer = useRef<number | null>(null);
   const view3sStart = useRef<number>(0);
   const completed = useRef<Set<string>>(new Set());
-  const videoLoadFailed = useRef<Set<string>>(new Set());
   const [slideState, setSlideState] = useState<Record<string, SlideState>>({});
   const [questsOpen, setQuestsOpen] = useState(false);
   const [quickRemixOpen, setQuickRemixOpen] = useState(false);
@@ -978,29 +975,6 @@ export const ClipsPage: React.FC = () => {
                         aria-label="Clip video"
                         onLoadedData={() => {
                           setSlideState((s) => ({ ...s, [item.replay_id]: { ...(s[item.replay_id] ?? {}), videoReady: true } }));
-                        }}
-                        onError={() => {
-                          if (videoLoadFailed.current.has(item.replay_id)) return;
-                          videoLoadFailed.current.add(item.replay_id);
-                          setSlideState((s) => ({ ...s, [item.replay_id]: { ...(s[item.replay_id] ?? {}), videoReady: false } }));
-                          apiFetch('/api/events/track', {
-                            method: 'POST',
-                            body: JSON.stringify({
-                              type: 'video_load_fail',
-                              source: 'play',
-                              meta: {
-                                replay_id: item.replay_id,
-                                url: item.vertical_mp4_url ?? null,
-                                mode,
-                                sort,
-                                feed_algo: feedAlgo,
-                                hero_variant: heroFeedVariant,
-                              },
-                            }),
-                          }).catch(() => {
-                            // best-effort
-                          });
-                          if (idx === activeIndex) toast.error(lang === 'ko' ? '비디오 로드 실패' : 'Video failed to load');
                         }}
                         onClick={(e) => {
                           const v = e.currentTarget;

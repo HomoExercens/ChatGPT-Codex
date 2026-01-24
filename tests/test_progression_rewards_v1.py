@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 
-def test_streak_advances_and_freeze_softens_missed_day(seeded_db) -> None:
+def test_streak_advances_and_resets(seeded_db) -> None:
     from neuroleague_api.db import SessionLocal
     from neuroleague_api.models import UserProgress
     from neuroleague_api.progression import apply_quest_claim_rewards
@@ -12,7 +12,6 @@ def test_streak_advances_and_freeze_softens_missed_day(seeded_db) -> None:
     now1 = datetime(2026, 1, 1, 0, 30, 0, tzinfo=UTC)
     now2 = datetime(2026, 1, 2, 0, 30, 0, tzinfo=UTC)
     now4 = datetime(2026, 1, 4, 0, 30, 0, tzinfo=UTC)
-    now8 = datetime(2026, 1, 8, 0, 30, 0, tzinfo=UTC)
 
     with SessionLocal() as session:
         r1 = apply_quest_claim_rewards(
@@ -26,10 +25,8 @@ def test_streak_advances_and_freeze_softens_missed_day(seeded_db) -> None:
         p = session.get(UserProgress, user_id)
         assert p is not None
         assert int(p.streak_days or 0) == 1
-        assert int(p.streak_freeze_tokens or 0) == 1
         assert int(p.quests_claimed_total or 0) == 1
         assert int(r1.streak_days) == 1
-        assert bool(r1.streak_freeze_awarded) is True
 
         r2 = apply_quest_claim_rewards(
             session,
@@ -42,7 +39,6 @@ def test_streak_advances_and_freeze_softens_missed_day(seeded_db) -> None:
         p2 = session.get(UserProgress, user_id)
         assert p2 is not None
         assert int(p2.streak_days or 0) == 2
-        assert int(p2.streak_freeze_tokens or 0) == 1
         assert int(p2.quests_claimed_total or 0) == 2
         assert bool(r2.streak_extended) is True
 
@@ -56,23 +52,7 @@ def test_streak_advances_and_freeze_softens_missed_day(seeded_db) -> None:
         session.commit()
         p3 = session.get(UserProgress, user_id)
         assert p3 is not None
-        assert int(p3.streak_days or 0) == 3
-        assert int(p3.streak_freeze_tokens or 0) == 0
+        assert int(p3.streak_days or 0) == 1
         assert int(p3.quests_claimed_total or 0) == 3
         assert bool(r3.streak_extended) is True
-        assert bool(r3.streak_protected) is True
 
-        # Next week: token is re-awarded (cap 1), but streak resets after a long gap.
-        r4 = apply_quest_claim_rewards(
-            session,
-            user_id=user_id,
-            cadence="daily",
-            quest_key="beat_this_3",
-            now=now8,
-        )
-        session.commit()
-        p4 = session.get(UserProgress, user_id)
-        assert p4 is not None
-        assert int(p4.streak_days or 0) == 1
-        assert int(p4.streak_freeze_tokens or 0) == 1
-        assert bool(r4.streak_freeze_awarded) is True

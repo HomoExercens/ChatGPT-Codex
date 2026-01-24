@@ -36,8 +36,6 @@ def _ensure_progress(session: Session, *, user_id: str, now: datetime) -> UserPr
         level=1,
         streak_days=0,
         last_active_day=None,
-        streak_freeze_tokens=0,
-        streak_freeze_awarded_week=None,
         quests_claimed_total=0,
         perfect_wins=0,
         one_shot_wins=0,
@@ -56,16 +54,7 @@ class QuestRewardResult:
     level_up: bool
     streak_days: int
     streak_extended: bool
-    streak_protected: bool
-    streak_freeze_tokens: int
-    streak_freeze_awarded: bool
     badges_unlocked: list[str]
-
-
-def _kst_week_key(*, now_utc: datetime) -> str:
-    d = _kst_today_date(now_utc=now_utc)
-    iso = d.isocalendar()
-    return f"{iso.year}-W{iso.week:02d}"
 
 
 def _ensure_badge_cosmetic(session: Session, *, cosmetic_id: str, name: str, now: datetime) -> None:
@@ -166,34 +155,14 @@ def apply_quest_claim_rewards(
     row.quests_claimed_total = int(row.quests_claimed_total or 0) + 1
 
     today = _kst_today_date(now_utc=now)
-    week_key = _kst_week_key(now_utc=now)
     streak_extended = False
-    streak_protected = False
     if row.last_active_day != today:
         streak_extended = True
-        if row.last_active_day is not None:
-            gap = (today - row.last_active_day).days
-        else:
-            gap = 0
-
-        if row.last_active_day is not None and gap == 1:
-            row.streak_days = int(row.streak_days or 0) + 1
-        elif row.last_active_day is not None and gap == 2 and int(row.streak_freeze_tokens or 0) > 0:
-            # One missed day can be protected by a weekly freeze token.
-            streak_protected = True
-            row.streak_freeze_tokens = max(0, int(row.streak_freeze_tokens or 0) - 1)
+        if row.last_active_day is not None and row.last_active_day == today - timedelta(days=1):
             row.streak_days = int(row.streak_days or 0) + 1
         else:
             row.streak_days = 1
         row.last_active_day = today
-
-    # Weekly streak softening: earn up to 1 freeze token per week via quest claim.
-    streak_freeze_awarded = False
-    if str(row.streak_freeze_awarded_week or "") != str(week_key):
-        row.streak_freeze_awarded_week = str(week_key)
-        if int(row.streak_freeze_tokens or 0) < 1:
-            row.streak_freeze_tokens = 1
-            streak_freeze_awarded = True
 
     row.updated_at = now
     session.add(row)
@@ -207,9 +176,6 @@ def apply_quest_claim_rewards(
         level_up=int(row.level or 1) > before_level,
         streak_days=int(row.streak_days or 0),
         streak_extended=bool(streak_extended),
-        streak_protected=bool(streak_protected),
-        streak_freeze_tokens=int(row.streak_freeze_tokens or 0),
-        streak_freeze_awarded=bool(streak_freeze_awarded),
         badges_unlocked=badges_unlocked,
     )
 

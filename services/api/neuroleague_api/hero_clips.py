@@ -35,16 +35,7 @@ class HeroCurationConfig:
     min_views: int = 10
     min_completions: int = 2
     min_completion_rate: float = 0.20
-    reliability_view_n_min: int = 50
-    completion_wilson_z: float = 1.0
     half_life_days: float = 5.0
-    diversity_max_per_synergy: int = 2
-    diversity_max_per_portal: int = 1
-    diversity_max_per_creature: int = 1
-    diversity_penalty_user: float = 2.0
-    diversity_penalty_synergy: float = 1.0
-    diversity_penalty_portal: float = 0.8
-    diversity_penalty_creature: float = 1.2
     weights: dict[str, float] | None = None
 
 
@@ -105,7 +96,7 @@ def ensure_hero_override_exists(
         return
     now_dt = now or datetime.now(UTC)
     default = {
-        "version": 2,
+        "version": 1,
         "updated_at": now_dt.isoformat(),
         "by_mode": {
             "1v1": {"pin": [], "exclude": []},
@@ -118,16 +109,7 @@ def ensure_hero_override_exists(
             "min_views": 10,
             "min_completions": 2,
             "min_completion_rate": 0.20,
-            "reliability_view_n_min": 50,
-            "completion_wilson_z": 1.0,
             "half_life_days": 5.0,
-            "diversity_max_per_synergy": 2,
-            "diversity_max_per_portal": 1,
-            "diversity_max_per_creature": 1,
-            "diversity_penalty_user": 2.0,
-            "diversity_penalty_synergy": 1.0,
-            "diversity_penalty_portal": 0.8,
-            "diversity_penalty_creature": 1.2,
             "weights": DEFAULT_WOW_WEIGHTS,
         },
     }
@@ -163,9 +145,6 @@ def _ids_from_auto(data: Any, *, mode: HeroMode) -> list[str]:
             # Simple list of replay ids.
             return _ids_from_any_list(cur)
         if isinstance(cur, dict):
-            selected = cur.get("selected")
-            if isinstance(selected, list):
-                return _ids_from_any_list(selected)
             items = cur.get("items")
             if isinstance(items, list):
                 out: list[str] = []
@@ -207,16 +186,7 @@ def _override_lists(data: dict[str, Any], *, mode: HeroMode) -> tuple[list[str],
         min_views=int(cfg_raw.get("min_views") or 10),
         min_completions=int(cfg_raw.get("min_completions") or 2),
         min_completion_rate=float(cfg_raw.get("min_completion_rate") or 0.2),
-        reliability_view_n_min=int(cfg_raw.get("reliability_view_n_min") or 50),
-        completion_wilson_z=float(cfg_raw.get("completion_wilson_z") or 1.0),
         half_life_days=float(cfg_raw.get("half_life_days") or 5.0),
-        diversity_max_per_synergy=int(cfg_raw.get("diversity_max_per_synergy") or 2),
-        diversity_max_per_portal=int(cfg_raw.get("diversity_max_per_portal") or 1),
-        diversity_max_per_creature=int(cfg_raw.get("diversity_max_per_creature") or 1),
-        diversity_penalty_user=float(cfg_raw.get("diversity_penalty_user") or 2.0),
-        diversity_penalty_synergy=float(cfg_raw.get("diversity_penalty_synergy") or 1.0),
-        diversity_penalty_portal=float(cfg_raw.get("diversity_penalty_portal") or 0.8),
-        diversity_penalty_creature=float(cfg_raw.get("diversity_penalty_creature") or 1.2),
         weights=weights,
     )
 
@@ -290,50 +260,7 @@ def compute_wow_score(
     features: dict[str, float],
     half_life_days: float,
     weights: dict[str, float],
-    reliability_view_n_min: int = 50,
-    completion_wilson_z: float = 1.0,
 ) -> float:
-    breakdown = compute_wow_breakdown(
-        now=now,
-        created_at=created_at,
-        engagement=engagement,
-        features=features,
-        half_life_days=half_life_days,
-        weights=weights,
-        reliability_view_n_min=reliability_view_n_min,
-        completion_wilson_z=completion_wilson_z,
-    )
-    return float(breakdown.get("wow_score") or 0.0)
-
-
-def _wilson_lower_bound(*, successes: float, trials: float, z: float) -> float:
-    try:
-        n = float(trials)
-        if n <= 0:
-            return 0.0
-        k = max(0.0, min(n, float(successes)))
-        z = max(0.0, float(z))
-        p_hat = k / n
-        denom = 1.0 + (z * z) / n
-        center = p_hat + (z * z) / (2.0 * n)
-        adj = z * math.sqrt((p_hat * (1.0 - p_hat) / n) + (z * z) / (4.0 * n * n))
-        lower = (center - adj) / denom
-        return max(0.0, min(1.0, float(lower)))
-    except Exception:  # noqa: BLE001
-        return 0.0
-
-
-def compute_wow_breakdown(
-    *,
-    now: datetime,
-    created_at: datetime,
-    engagement: dict[str, float],
-    features: dict[str, float],
-    half_life_days: float,
-    weights: dict[str, float],
-    reliability_view_n_min: int = 50,
-    completion_wilson_z: float = 1.0,
-) -> dict[str, float]:
     def _log1p(x: float) -> float:
         try:
             return math.log1p(max(0.0, float(x)))
@@ -341,85 +268,30 @@ def compute_wow_breakdown(
             return 0.0
 
     completion_rate = 0.0
-    completion_rate_wilson = 0.0
     try:
         views = float(engagement.get("views") or 0.0)
         completions = float(engagement.get("completions") or 0.0)
         completion_rate = completions / max(1.0, views)
-        completion_rate_wilson = _wilson_lower_bound(
-            successes=completions,
-            trials=views,
-            z=completion_wilson_z,
-        )
     except Exception:  # noqa: BLE001
         completion_rate = 0.0
-        completion_rate_wilson = 0.0
 
-    reliability_factor = 1.0
-    try:
-        views_n = max(0.0, float(engagement.get("views") or 0.0))
-        n_min = max(1.0, float(reliability_view_n_min))
-        reliability_factor = min(1.0, views_n / n_min)
-    except Exception:  # noqa: BLE001
-        reliability_factor = 1.0
+    score = 0.0
+    score += float(weights.get("views", 0.0)) * _log1p(float(engagement.get("views") or 0.0))
+    score += float(weights.get("completions", 0.0)) * _log1p(float(engagement.get("completions") or 0.0))
+    score += float(weights.get("completion_rate", 0.0)) * float(completion_rate)
+    score += float(weights.get("share_open", 0.0)) * _log1p(float(engagement.get("share_open") or 0.0))
+    score += float(weights.get("clip_share", 0.0)) * _log1p(float(engagement.get("clip_share") or 0.0))
+    score += float(weights.get("beat_this_click", 0.0)) * _log1p(float(engagement.get("beat_this_click") or 0.0))
+    score += float(weights.get("reply_clip_shared", 0.0)) * _log1p(float(engagement.get("reply_clip_shared") or 0.0))
+    score += float(weights.get("reactions", 0.0)) * _log1p(float(engagement.get("reactions") or 0.0))
 
-    engagement_score = 0.0
-    engagement_score += float(weights.get("views", 0.0)) * _log1p(
-        float(engagement.get("views") or 0.0)
-    )
-    engagement_score += float(weights.get("completions", 0.0)) * _log1p(
-        float(engagement.get("completions") or 0.0)
-    )
-    engagement_score += float(weights.get("completion_rate", 0.0)) * float(
-        completion_rate_wilson
-    )
-    engagement_score += float(weights.get("share_open", 0.0)) * _log1p(
-        float(engagement.get("share_open") or 0.0)
-    )
-    engagement_score += float(weights.get("clip_share", 0.0)) * _log1p(
-        float(engagement.get("clip_share") or 0.0)
-    )
-    engagement_score += float(weights.get("beat_this_click", 0.0)) * _log1p(
-        float(engagement.get("beat_this_click") or 0.0)
-    )
-    engagement_score += float(weights.get("reply_clip_shared", 0.0)) * _log1p(
-        float(engagement.get("reply_clip_shared") or 0.0)
-    )
-    engagement_score += float(weights.get("reactions", 0.0)) * _log1p(
-        float(engagement.get("reactions") or 0.0)
-    )
+    score += float(weights.get("highlight_count", 0.0)) * float(features.get("highlight_count") or 0.0)
+    score += float(weights.get("damage_spikes", 0.0)) * float(features.get("damage_spikes") or 0.0)
+    score += float(weights.get("badge_perfect", 0.0)) * float(features.get("badge_perfect") or 0.0)
+    score += float(weights.get("badge_one_shot", 0.0)) * float(features.get("badge_one_shot") or 0.0)
+    score += float(weights.get("badge_clutch", 0.0)) * float(features.get("badge_clutch") or 0.0)
 
-    feature_score = 0.0
-    feature_score += float(weights.get("highlight_count", 0.0)) * float(
-        features.get("highlight_count") or 0.0
-    )
-    feature_score += float(weights.get("damage_spikes", 0.0)) * float(
-        features.get("damage_spikes") or 0.0
-    )
-    feature_score += float(weights.get("badge_perfect", 0.0)) * float(
-        features.get("badge_perfect") or 0.0
-    )
-    feature_score += float(weights.get("badge_one_shot", 0.0)) * float(
-        features.get("badge_one_shot") or 0.0
-    )
-    feature_score += float(weights.get("badge_clutch", 0.0)) * float(
-        features.get("badge_clutch") or 0.0
-    )
-
-    decay = _decay(now=now, created_at=created_at, half_life_days=half_life_days)
-    base_score = float(engagement_score) * float(reliability_factor) + float(
-        feature_score
-    )
-    return {
-        "completion_rate": float(completion_rate),
-        "completion_rate_wilson": float(completion_rate_wilson),
-        "reliability_factor": float(reliability_factor),
-        "decay": float(decay),
-        "engagement_score": float(engagement_score),
-        "feature_score": float(feature_score),
-        "base_score": float(base_score),
-        "wow_score": float(base_score) * float(decay),
-    }
+    return score * _decay(now=now, created_at=created_at, half_life_days=half_life_days)
 
 
 def _replay_features(payload: dict[str, Any]) -> dict[str, float]:
@@ -469,116 +341,6 @@ def _replay_features(payload: dict[str, Any]) -> dict[str, float]:
         "badge_one_shot": float(badge_one_shot),
         "badge_clutch": float(badge_clutch),
     }
-
-
-def _replay_diversity(payload: dict[str, Any]) -> dict[str, Any]:
-    header = payload.get("header") if isinstance(payload.get("header"), dict) else {}
-    portal_id = str(header.get("portal_id") or "").strip() or None
-    units = header.get("units") if isinstance(header.get("units"), list) else []
-    team_a: list[dict[str, Any]] = []
-    for u in units:
-        if isinstance(u, dict) and str(u.get("team") or "") == "A":
-            team_a.append(u)
-    team_a.sort(
-        key=lambda u: (
-            int(u.get("slot_index") or 0),
-            str(u.get("unit_id") or ""),
-            str(u.get("creature_id") or ""),
-        )
-    )
-
-    creatures: list[str] = []
-    tag_counts: dict[str, int] = {}
-    for u in team_a:
-        cid = str(u.get("creature_id") or "").strip()
-        if cid:
-            creatures.append(cid)
-        tags = u.get("tags")
-        if isinstance(tags, list):
-            for t in tags:
-                ts = str(t or "").strip()
-                if not ts:
-                    continue
-                tag_counts[ts] = int(tag_counts.get(ts, 0)) + 1
-
-    primary_synergy: str | None = None
-    if tag_counts:
-        primary_synergy = sorted(tag_counts.items(), key=lambda kv: (-int(kv[1]), kv[0]))[0][0]
-
-    return {
-        "portal_id": portal_id,
-        "primary_synergy": primary_synergy,
-        "creatures": creatures[:4],
-        "primary_creature": creatures[0] if creatures else None,
-    }
-
-
-def _diversity_penalty(
-    *,
-    meta: dict[str, Any],
-    counts_user: dict[str, int],
-    counts_synergy: dict[str, int],
-    counts_portal: dict[str, int],
-    counts_creature: dict[str, int],
-    cfg: HeroCurationConfig,
-    enforce_caps: bool,
-) -> tuple[float, dict[str, Any], bool]:
-    uid = str(meta.get("user_id") or "").strip()
-    synergy = str(meta.get("primary_synergy") or "").strip()
-    portal = str(meta.get("portal_id") or "").strip()
-    creature = str(meta.get("primary_creature") or "").strip()
-
-    cur_user = int(counts_user.get(uid, 0)) if uid else 0
-    cur_syn = int(counts_synergy.get(synergy, 0)) if synergy else 0
-    cur_portal = int(counts_portal.get(portal, 0)) if portal else 0
-    cur_creature = int(counts_creature.get(creature, 0)) if creature else 0
-
-    if enforce_caps:
-        if uid and cur_user >= int(cfg.max_per_user or 2):
-            return 0.0, {"blocked": "max_per_user", "value": uid}, True
-        if synergy and cur_syn >= int(cfg.diversity_max_per_synergy or 2):
-            return 0.0, {"blocked": "max_per_synergy", "value": synergy}, True
-        if portal and cur_portal >= int(cfg.diversity_max_per_portal or 1):
-            return 0.0, {"blocked": "max_per_portal", "value": portal}, True
-        if creature and cur_creature >= int(cfg.diversity_max_per_creature or 1):
-            return 0.0, {"blocked": "max_per_creature", "value": creature}, True
-
-    penalty = 0.0
-    reasons: dict[str, Any] = {"overlaps": {}}
-    if uid and cur_user > 0:
-        delta = float(cfg.diversity_penalty_user) * float(cur_user)
-        penalty += delta
-        reasons["overlaps"]["user_id"] = {
-            "value": uid,
-            "count": cur_user,
-            "penalty": float(delta),
-        }
-    if synergy and cur_syn > 0:
-        delta = float(cfg.diversity_penalty_synergy) * float(cur_syn)
-        penalty += delta
-        reasons["overlaps"]["synergy"] = {
-            "value": synergy,
-            "count": cur_syn,
-            "penalty": float(delta),
-        }
-    if portal and cur_portal > 0:
-        delta = float(cfg.diversity_penalty_portal) * float(cur_portal)
-        penalty += delta
-        reasons["overlaps"]["portal_id"] = {
-            "value": portal,
-            "count": cur_portal,
-            "penalty": float(delta),
-        }
-    if creature and cur_creature > 0:
-        delta = float(cfg.diversity_penalty_creature) * float(cur_creature)
-        penalty += delta
-        reasons["overlaps"]["creature_id"] = {
-            "value": creature,
-            "count": cur_creature,
-            "penalty": float(delta),
-        }
-    reasons["penalty_total"] = float(penalty)
-    return float(penalty), reasons, False
 
 
 def recompute_hero_clips(
@@ -724,7 +486,6 @@ def recompute_hero_clips(
             rid,
             {
                 "views": 0.0,
-                "views_total": 0.0,
                 "completions": 0.0,
                 "clip_share": 0.0,
                 "share_open": 0.0,
@@ -733,17 +494,7 @@ def recompute_hero_clips(
             },
         )
         if str(ev.type) == "clip_view":
-            row["views_total"] += 1.0
-            watched_ms = 0
-            meta = p.get("meta")
-            if isinstance(meta, dict):
-                raw = meta.get("watched_ms")
-                try:
-                    watched_ms = int(raw) if raw is not None else 0
-                except Exception:  # noqa: BLE001
-                    watched_ms = 0
-            if watched_ms >= 3000:
-                row["views"] += 1.0
+            row["views"] += 1.0
         elif str(ev.type) == "clip_completion":
             row["completions"] += 1.0
         elif str(ev.type) == "clip_share":
@@ -798,20 +549,15 @@ def recompute_hero_clips(
         payload = load_replay_json(artifact_path=str(c.get("artifact_path") or ""))
         payload = payload if isinstance(payload, dict) else {}
         features = _replay_features(payload)
-        diversity = _replay_diversity(payload)
-        diversity["user_id"] = c.get("user_id")
 
-        breakdown = compute_wow_breakdown(
+        wow_score = compute_wow_score(
             now=now_dt,
             created_at=created_at,
             engagement=engagement,
             features=features,
             half_life_days=float(cfg.half_life_days),
             weights=weights,
-            reliability_view_n_min=int(cfg.reliability_view_n_min or 50),
-            completion_wilson_z=float(cfg.completion_wilson_z or 1.0),
         )
-        wow_score = float(breakdown.get("wow_score") or 0.0)
         auto_by_mode[mode].append(
             {
                 "replay_id": rid,
@@ -819,19 +565,16 @@ def recompute_hero_clips(
                 "user_id": c.get("user_id"),
                 "created_at": created_at.isoformat(),
                 "wow_score": float(wow_score),
-                "wow_breakdown": breakdown,
                 "engagement": {
                     **{k: int(v) for k, v in engagement.items() if k != "reactions"},
                     "reactions": int(engagement.get("reactions") or 0),
                     "completion_rate": float(completion_rate),
-                    "completion_rate_wilson": float(breakdown.get("completion_rate_wilson") or 0.0),
                 },
                 "features": features,
-                "diversity": diversity,
             }
         )
 
-    # Sort + apply diversity constraints + take top N.
+    # Sort + enforce per-user cap + apply override pin/exclude + take top N.
     final_by_mode: dict[str, list[str]] = {"1v1": [], "team": []}
     for mode in ("1v1", "team"):
         cfg = cfg_by_mode[mode]
@@ -845,215 +588,42 @@ def recompute_hero_clips(
                 str(it.get("replay_id") or ""),
             )
         )
+        auto_ids_ranked = [str(it.get("replay_id") or "") for it in scored if str(it.get("replay_id") or "")]
 
-        item_by_rid: dict[str, dict[str, Any]] = {
-            str(it.get("replay_id") or ""): it
-            for it in scored
-            if str(it.get("replay_id") or "")
-        }
-
-        pinned_meta: dict[str, dict[str, Any]] = {}
-        pinned_ids = [r for r in pinned if r and r not in excluded]
-        if pinned_ids:
-            rows2 = session.execute(
-                select(Replay.id, Match.user_a_id, Replay.artifact_path)
+        # Resolve user ids for pinned + auto to enforce max_per_user.
+        candidates_for_user = [*pinned, *auto_ids_ranked]
+        resolved_user_by_replay: dict[str, str] = {}
+        if candidates_for_user:
+            pairs = session.execute(
+                select(Replay.id, Match.user_a_id)
                 .join(Match, Match.id == Replay.match_id)
-                .where(Replay.id.in_(sorted(set(pinned_ids))))
+                .where(Replay.id.in_(list({r for r in candidates_for_user if r})))
             ).all()
-            for rid, uid, ap in rows2:
-                try:
-                    payload = load_replay_json(artifact_path=str(ap or ""))
-                except Exception:  # noqa: BLE001
-                    payload = {}
-                payload = payload if isinstance(payload, dict) else {}
-                meta = _replay_diversity(payload)
-                meta["user_id"] = str(uid or "").strip() or None
-                pinned_meta[str(rid)] = meta
+            resolved_user_by_replay = {str(rid): str(uid or "") for rid, uid in pairs}
 
-        counts_user: dict[str, int] = {}
-        counts_synergy: dict[str, int] = {}
-        counts_portal: dict[str, int] = {}
-        counts_creature: dict[str, int] = {}
-
-        def _inc(meta: dict[str, Any]) -> None:
-            uid = str(meta.get("user_id") or "").strip()
-            if uid:
-                counts_user[uid] = int(counts_user.get(uid, 0)) + 1
-            synergy = str(meta.get("primary_synergy") or "").strip()
-            if synergy:
-                counts_synergy[synergy] = int(counts_synergy.get(synergy, 0)) + 1
-            portal = str(meta.get("portal_id") or "").strip()
-            if portal:
-                counts_portal[portal] = int(counts_portal.get(portal, 0)) + 1
-            creature = str(meta.get("primary_creature") or "").strip()
-            if creature:
-                counts_creature[creature] = int(counts_creature.get(creature, 0)) + 1
-
-        selected: list[str] = []
-
-        # Start with pinned: operator override always wins.
-        for rid in pinned:
-            if not rid or rid in excluded or rid in selected:
+        per_user: dict[str, int] = {}
+        merged: list[str] = []
+        for rid in [*pinned, *auto_ids_ranked]:
+            if not rid or rid in excluded:
                 continue
-            selected.append(rid)
-            meta = pinned_meta.get(rid)
-            if meta is None:
-                it = item_by_rid.get(rid)
-                meta = it.get("diversity") if isinstance(it, dict) and isinstance(it.get("diversity"), dict) else None
-            if isinstance(meta, dict):
-                _inc(meta)
-            if len(selected) >= int(cfg.max_items or 5):
-                break
-
-        pool = [
-            it
-            for it in scored
-            if str(it.get("replay_id") or "") and str(it.get("replay_id") or "") not in selected
-        ]
-        while len(selected) < int(cfg.max_items or 5):
-            best: dict[str, Any] | None = None
-            best_eff = -1e18
-            best_base = -1e18
-            best_rid = ""
-            best_pen = 0.0
-            best_reason: dict[str, Any] = {}
-
-            for it in pool:
-                rid = str(it.get("replay_id") or "")
-                if not rid or rid in excluded or rid in selected:
-                    continue
-                meta = it.get("diversity") if isinstance(it.get("diversity"), dict) else {}
-                meta = dict(meta) if isinstance(meta, dict) else {}
-                meta.setdefault("user_id", it.get("user_id"))
-                pen, reason, blocked = _diversity_penalty(
-                    meta=meta,
-                    counts_user=counts_user,
-                    counts_synergy=counts_synergy,
-                    counts_portal=counts_portal,
-                    counts_creature=counts_creature,
-                    cfg=cfg,
-                    enforce_caps=True,
-                )
-                if blocked:
-                    continue
-                base = float(it.get("wow_score") or 0.0)
-                eff = float(base) - float(pen)
-                if (eff, base, rid) > (best_eff, best_base, best_rid):
-                    best = it
-                    best_eff = eff
-                    best_base = base
-                    best_rid = rid
-                    best_pen = float(pen)
-                    best_reason = reason
-
-            if best is None:
-                break
-            rid = str(best.get("replay_id") or "")
-            if not rid:
-                break
-            selected.append(rid)
-            # Persist into the item for ops explainability.
-            best["diversity_penalty_selected"] = float(best_pen)
-            best["diversity_penalty_selected_detail"] = best_reason
-            if isinstance(best.get("wow_breakdown"), dict):
-                best["wow_breakdown"] = {
-                    **best["wow_breakdown"],
-                    "diversity_penalty_selected": float(best_pen),
-                }
-            meta = best.get("diversity") if isinstance(best.get("diversity"), dict) else {}
-            meta = dict(meta) if isinstance(meta, dict) else {}
-            meta.setdefault("user_id", best.get("user_id"))
-            _inc(meta)
-            pool = [it for it in pool if str(it.get("replay_id") or "") != rid]
-
-        # Explainability: compute overlap penalty vs final selected set (without hard caps).
-        selected_meta: dict[str, dict[str, Any]] = {}
-        for rid in selected:
-            if rid in pinned_meta:
-                selected_meta[rid] = pinned_meta[rid]
+            if rid in merged:
                 continue
-            it = item_by_rid.get(rid)
-            if it and isinstance(it.get("diversity"), dict):
-                meta = dict(it["diversity"])
-                meta.setdefault("user_id", it.get("user_id"))
-                selected_meta[rid] = meta
-
-        total_user: dict[str, int] = {}
-        total_syn: dict[str, int] = {}
-        total_portal: dict[str, int] = {}
-        total_creature: dict[str, int] = {}
-        for meta in selected_meta.values():
-            uid = str(meta.get("user_id") or "").strip()
+            uid = resolved_user_by_replay.get(rid, "")
             if uid:
-                total_user[uid] = int(total_user.get(uid, 0)) + 1
-            syn = str(meta.get("primary_synergy") or "").strip()
-            if syn:
-                total_syn[syn] = int(total_syn.get(syn, 0)) + 1
-            portal = str(meta.get("portal_id") or "").strip()
-            if portal:
-                total_portal[portal] = int(total_portal.get(portal, 0)) + 1
-            creature = str(meta.get("primary_creature") or "").strip()
-            if creature:
-                total_creature[creature] = int(total_creature.get(creature, 0)) + 1
-
-        for it in scored[: min(200, len(scored))]:
-            rid = str(it.get("replay_id") or "")
-            meta = it.get("diversity") if isinstance(it.get("diversity"), dict) else {}
-            meta = dict(meta) if isinstance(meta, dict) else {}
-            meta.setdefault("user_id", it.get("user_id"))
-
-            uid = str(meta.get("user_id") or "").strip()
-            syn = str(meta.get("primary_synergy") or "").strip()
-            portal = str(meta.get("portal_id") or "").strip()
-            creature = str(meta.get("primary_creature") or "").strip()
-
-            # Exclude self contribution if the item is already selected.
-            self_uid = ""
-            self_syn = ""
-            self_portal = ""
-            self_creature = ""
-            if rid in selected_meta:
-                m0 = selected_meta[rid]
-                self_uid = str(m0.get("user_id") or "").strip()
-                self_syn = str(m0.get("primary_synergy") or "").strip()
-                self_portal = str(m0.get("portal_id") or "").strip()
-                self_creature = str(m0.get("primary_creature") or "").strip()
-
-            overlap_user = max(0, int(total_user.get(uid, 0)) - (1 if uid and uid == self_uid else 0)) if uid else 0
-            overlap_syn = max(0, int(total_syn.get(syn, 0)) - (1 if syn and syn == self_syn else 0)) if syn else 0
-            overlap_portal = max(0, int(total_portal.get(portal, 0)) - (1 if portal and portal == self_portal else 0)) if portal else 0
-            overlap_creature = max(0, int(total_creature.get(creature, 0)) - (1 if creature and creature == self_creature else 0)) if creature else 0
-
-            pen = 0.0
-            detail: dict[str, Any] = {"overlaps": {}}
-            if uid and overlap_user > 0:
-                delta = float(cfg.diversity_penalty_user) * float(overlap_user)
-                pen += delta
-                detail["overlaps"]["user_id"] = {"value": uid, "count": overlap_user, "penalty": float(delta)}
-            if syn and overlap_syn > 0:
-                delta = float(cfg.diversity_penalty_synergy) * float(overlap_syn)
-                pen += delta
-                detail["overlaps"]["synergy"] = {"value": syn, "count": overlap_syn, "penalty": float(delta)}
-            if portal and overlap_portal > 0:
-                delta = float(cfg.diversity_penalty_portal) * float(overlap_portal)
-                pen += delta
-                detail["overlaps"]["portal_id"] = {"value": portal, "count": overlap_portal, "penalty": float(delta)}
-            if creature and overlap_creature > 0:
-                delta = float(cfg.diversity_penalty_creature) * float(overlap_creature)
-                pen += delta
-                detail["overlaps"]["creature_id"] = {"value": creature, "count": overlap_creature, "penalty": float(delta)}
-            detail["penalty_total"] = float(pen)
-
-            it["diversity_penalty_vs_selected"] = float(pen)
-            it["diversity_penalty_vs_selected_detail"] = detail
-
-        final_by_mode[mode] = selected
+                cur = int(per_user.get(uid, 0))
+                if cur >= int(cfg.max_per_user or 2):
+                    continue
+                per_user[uid] = cur + 1
+            merged.append(rid)
+            if len(merged) >= int(cfg.max_items or 5):
+                break
+        final_by_mode[mode] = merged
 
         # Store only top-k items in auto output to keep the file readable.
         auto_by_mode[mode] = scored[: min(200, len(scored))]
 
     auto_out = {
-        "version": 2,
+        "version": 1,
         "generated_at": now_dt.isoformat(),
         "ruleset_version": ruleset,
         "window_days": int(window_days),
@@ -1066,17 +636,8 @@ def recompute_hero_clips(
             "min_views": int(cfg_by_mode["1v1"].min_views),
             "min_completions": int(cfg_by_mode["1v1"].min_completions),
             "min_completion_rate": float(cfg_by_mode["1v1"].min_completion_rate),
-            "reliability_view_n_min": int(cfg_by_mode["1v1"].reliability_view_n_min),
-            "completion_wilson_z": float(cfg_by_mode["1v1"].completion_wilson_z),
             "max_per_user": int(cfg_by_mode["1v1"].max_per_user),
             "max_items": int(cfg_by_mode["1v1"].max_items),
-            "diversity_max_per_synergy": int(cfg_by_mode["1v1"].diversity_max_per_synergy),
-            "diversity_max_per_portal": int(cfg_by_mode["1v1"].diversity_max_per_portal),
-            "diversity_max_per_creature": int(cfg_by_mode["1v1"].diversity_max_per_creature),
-            "diversity_penalty_user": float(cfg_by_mode["1v1"].diversity_penalty_user),
-            "diversity_penalty_synergy": float(cfg_by_mode["1v1"].diversity_penalty_synergy),
-            "diversity_penalty_portal": float(cfg_by_mode["1v1"].diversity_penalty_portal),
-            "diversity_penalty_creature": float(cfg_by_mode["1v1"].diversity_penalty_creature),
         },
     }
     backend.put_bytes(
