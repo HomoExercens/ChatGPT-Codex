@@ -132,17 +132,17 @@ export const PlaytestPage: React.FC = () => {
   }, [token, demoReplayId]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-50">
+    <div className="min-h-screen flex items-center justify-center p-4 bg-bg text-fg">
       <Card className="w-full max-w-2xl">
         <CardHeader>
           <CardTitle>NeuroLeague Playtest (2‑minute loop)</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="text-sm text-slate-700">
+          <div className="text-sm text-muted">
             Goal: clip → Beat This → Quick Remix → match done → reply share → see your reply under Replies.
           </div>
 
-          {error ? <div className="text-xs text-red-600 break-words">{error}</div> : null}
+          {error ? <div className="text-xs text-danger-500 break-words">{error}</div> : null}
 
           <div className="flex flex-wrap gap-2">
             {demoClipUrl ? (
@@ -155,11 +155,11 @@ export const PlaytestPage: React.FC = () => {
               <Button disabled>Start Playtest</Button>
             )}
             <a href="/feedback?context=playtest">
-              <Button variant="secondary">Report issue</Button>
-            </a>
+            <Button variant="secondary">Report issue</Button>
+          </a>
           </div>
 
-          <div className="text-xs text-slate-500">
+          <div className="text-xs text-muted/70">
             Demo replay: {demoReplayId ? <span className="font-mono">{demoReplayId}</span> : '—'}
             {demoIds?.ruleset_version ? ` · ruleset: ${demoIds.ruleset_version}` : ''}
           </div>
@@ -167,60 +167,60 @@ export const PlaytestPage: React.FC = () => {
           <div className="space-y-2">
             <div className="text-sm font-semibold">Steps</div>
             <div className="space-y-2 text-sm">
-              <div className="flex items-start justify-between gap-3 border border-slate-200 rounded-xl px-3 py-2 bg-white">
+              <div className="flex items-start justify-between gap-3 border border-border/12 rounded-2xl px-3 py-3 bg-surface-2/35">
                 <div>
                   <div className="font-medium">1) Open the demo clip</div>
-                  <div className="text-xs text-slate-500">On the share landing, you’ll see “Beat This” and “Quick Remix”.</div>
+                  <div className="text-xs text-muted">On the share landing, you’ll see “Beat This” and “Quick Remix”.</div>
                 </div>
                 <Button variant={done[1] ? 'secondary' : 'primary'} onClick={() => toggleDone(1)}>
                   {done[1] ? 'Done' : 'Mark done'}
                 </Button>
               </div>
 
-              <div className="flex items-start justify-between gap-3 border border-slate-200 rounded-xl px-3 py-2 bg-white">
+              <div className="flex items-start justify-between gap-3 border border-border/12 rounded-2xl px-3 py-3 bg-surface-2/35">
                 <div>
                   <div className="font-medium">2) Click “Beat This”</div>
-                  <div className="text-xs text-slate-500">This starts a challenge match against the original clip.</div>
+                  <div className="text-xs text-muted">This starts a challenge match against the original clip.</div>
                 </div>
                 <Button variant={done[2] ? 'secondary' : 'primary'} onClick={() => toggleDone(2)}>
                   {done[2] ? 'Done' : 'Mark done'}
                 </Button>
               </div>
 
-              <div className="flex items-start justify-between gap-3 border border-slate-200 rounded-xl px-3 py-2 bg-white">
+              <div className="flex items-start justify-between gap-3 border border-border/12 rounded-2xl px-3 py-3 bg-surface-2/35">
                 <div>
                   <div className="font-medium">3) Pick a Quick Remix preset</div>
-                  <div className="text-xs text-slate-500">Try one: Tankier / Melt Faster / Counter.</div>
+                  <div className="text-xs text-muted">Try one: Tankier / Melt Faster / Counter.</div>
                 </div>
                 <Button variant={done[3] ? 'secondary' : 'primary'} onClick={() => toggleDone(3)}>
                   {done[3] ? 'Done' : 'Mark done'}
                 </Button>
               </div>
 
-              <div className="flex items-start justify-between gap-3 border border-slate-200 rounded-xl px-3 py-2 bg-white">
+              <div className="flex items-start justify-between gap-3 border border-border/12 rounded-2xl px-3 py-3 bg-surface-2/35">
                 <div>
                   <div className="font-medium">4) Wait for the match result</div>
-                  <div className="text-xs text-slate-500">You’ll land on a replay page when the match is done.</div>
+                  <div className="text-xs text-muted">You’ll land on a replay page when the match is done.</div>
                 </div>
                 <Button variant={done[4] ? 'secondary' : 'primary'} onClick={() => toggleDone(4)}>
                   {done[4] ? 'Done' : 'Mark done'}
                 </Button>
               </div>
 
-              <div className="flex items-start justify-between gap-3 border border-slate-200 rounded-xl px-3 py-2 bg-white">
+              <div className="flex items-start justify-between gap-3 border border-border/12 rounded-2xl px-3 py-3 bg-surface-2/35">
                 <div>
                   <div className="font-medium">5) Share your Reply Clip</div>
-                  <div className="text-xs text-slate-500">Use the share UI to publish a reply clip back to the original.</div>
+                  <div className="text-xs text-muted">Use the share UI to publish a reply clip back to the original.</div>
                 </div>
                 <Button variant={done[5] ? 'secondary' : 'primary'} onClick={() => toggleDone(5)}>
                   {done[5] ? 'Done' : 'Mark done'}
                 </Button>
               </div>
 
-              <div className="flex items-start justify-between gap-3 border border-slate-200 rounded-xl px-3 py-2 bg-white">
+              <div className="flex items-start justify-between gap-3 border border-border/12 rounded-2xl px-3 py-3 bg-surface-2/35">
                 <div>
                   <div className="font-medium">6) Confirm your reply under “Replies”</div>
-                  <div className="text-xs text-slate-500">Return to the original clip share page and check the Replies section.</div>
+                  <div className="text-xs text-muted">Return to the original clip share page and check the Replies section.</div>
                 </div>
                 <Button variant={done[6] ? 'secondary' : 'primary'} onClick={() => toggleDone(6)}>
                   {done[6] ? 'Done' : 'Mark done'}
@@ -229,7 +229,7 @@ export const PlaytestPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="text-xs text-slate-500">
+          <div className="text-xs text-muted/70">
             Tip: If the preview URL changes (Quick Tunnel), re-open <span className="font-mono">/playtest</span> from the new base URL.
           </div>
         </CardContent>

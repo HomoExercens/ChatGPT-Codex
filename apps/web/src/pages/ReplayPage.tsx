@@ -1037,7 +1037,7 @@ export const ReplayPage: React.FC = () => {
       <div className="lg:col-span-9 flex flex-col gap-4 min-h-[calc(100vh-140px)]">
         {isReplyClip ? (
           <div
-            className={`rounded-3xl overflow-hidden border border-white/10 text-white shadow-xl ${
+            className={`rounded-3xl overflow-hidden border border-border/12 text-white shadow-xl ${
               replyOutcome === 'win'
                 ? 'nl-result-win bg-gradient-to-r from-green-500 to-emerald-400'
                 : replyOutcome === 'loss'
@@ -1081,7 +1081,7 @@ export const ReplayPage: React.FC = () => {
                   <span className="font-mono">{replyXpProgress}%</span>
                 </div>
                 <div className="mt-2 w-full h-2 rounded-full bg-white/20 overflow-hidden">
-                  <div className="h-full bg-white" style={{ width: `${replyXpProgress}%` }} />
+                  <div className="h-full bg-gradient-to-r from-brand-400 to-accent-500" style={{ width: `${replyXpProgress}%` }} />
                 </div>
               </div>
 
@@ -1107,7 +1107,7 @@ export const ReplayPage: React.FC = () => {
                           </div>
                           <div className="mt-1 h-1.5 rounded-full bg-white/20 overflow-hidden">
                             <div
-                              className="h-full bg-white/90 transition-all duration-700"
+                              className="h-full bg-gradient-to-r from-brand-400 to-accent-500 transition-all duration-700"
                               style={{ width: `${(questReveal ? pct : 0) * 100}%` }}
                             />
                           </div>
@@ -1119,32 +1119,24 @@ export const ReplayPage: React.FC = () => {
               ) : null}
 
               <div className="mt-4 grid grid-cols-1 gap-2">
-                <button
-                  type="button"
-                  className="h-12 rounded-2xl bg-white text-slate-900 font-extrabold tracking-tight shadow-lg shadow-black/20 hover:bg-white/95 active:bg-white/90 transition-colors"
-                  onClick={shareReply}
-                  disabled={!match?.replay_id}
-                >
+                <Button type="button" size="lg" variant="primary" className="w-full" onClick={shareReply} disabled={!match?.replay_id}>
                   {lang === 'ko' ? 'Reply 클립 공유(링크 복사)' : 'Share Reply Clip'}
-                </button>
+                </Button>
                 {canAutoTuneCounter ? (
-                  <button
+                  <Button
                     type="button"
-                    className="h-12 rounded-2xl bg-white/15 border border-white/20 text-white font-extrabold tracking-tight shadow-lg shadow-black/10 hover:bg-white/20 active:bg-white/25 transition-colors disabled:opacity-60"
+                    size="lg"
+                    variant="secondary"
+                    className="w-full bg-white/12 border-white/20 text-white hover:bg-white/16"
                     onClick={() => {
                       tapJuice();
                       autoTuneCounterMutation.mutate();
                     }}
                     disabled={autoTuneCounterMutation.isPending}
+                    isLoading={autoTuneCounterMutation.isPending}
                   >
-                    {autoTuneCounterMutation.isPending
-                      ? lang === 'ko'
-                        ? 'Auto Tune 중…'
-                        : 'Auto Tuning…'
-                      : lang === 'ko'
-                        ? 'Auto Tune(카운터) → 재도전'
-                        : 'Auto Tune (counter) → Retry'}
-                  </button>
+                    {lang === 'ko' ? 'Auto Tune(카운터) → 재도전' : 'Auto Tune (counter) → Retry'}
+                  </Button>
                 ) : null}
                 <a
                   href={replyToReplayId ? `/s/clip/${encodeURIComponent(replyToReplayId)}` : '#'}
@@ -1167,15 +1159,15 @@ export const ReplayPage: React.FC = () => {
           </div>
         ) : null}
 
-        <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+        <div className="flex justify-between items-center bg-surface-1/55 backdrop-blur-xl p-4 rounded-3xl border border-border/12 shadow-glass">
           <div className="flex items-center gap-6">
             <div className="flex flex-col items-center">
-              <span className="font-bold text-xl text-blue-600">{t.replayYou}</span>
+              <span className="font-bold text-xl text-brand-200">{t.replayYou}</span>
               <Badge variant="info">Blueprint A</Badge>
             </div>
-            <div className="text-2xl font-bold text-slate-300">VS</div>
+            <div className="text-2xl font-bold text-muted/50">VS</div>
             <div className="flex flex-col items-center">
-              <span className="font-bold text-xl text-red-500">{t.replayOpponent}</span>
+              <span className="font-bold text-xl text-danger-500">{t.replayOpponent}</span>
               <Badge variant="error">Blueprint B</Badge>
             </div>
             {match?.mode ? (
@@ -1185,22 +1177,22 @@ export const ReplayPage: React.FC = () => {
             {match?.opponent_display_name ? (
               <div className="hidden md:flex flex-col">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-slate-700 truncate max-w-[180px]">
+                  <span className="text-xs font-semibold text-fg/85 truncate max-w-[180px]">
                     {match.opponent_display_name}
                   </span>
                   <Badge variant={match.opponent_type === 'human' ? 'info' : 'neutral'}>
                     {match.opponent_type.toUpperCase()}
                   </Badge>
                   {match.opponent_type === 'human' && match.opponent_elo != null ? (
-                    <span className="text-[10px] text-slate-400 font-mono">Elo {match.opponent_elo}</span>
+                    <span className="text-[10px] text-muted/70 font-mono">Elo {match.opponent_elo}</span>
                   ) : null}
                 </div>
                 {match.matchmaking_reason ? (
-                  <div className="text-[10px] text-slate-400">{match.matchmaking_reason}</div>
+                  <div className="text-[10px] text-muted/70">{match.matchmaking_reason}</div>
                 ) : null}
               </div>
             ) : null}
-            <span className="hidden md:inline text-xs text-slate-400 font-mono">match_id: {id}</span>
+            <span className="hidden md:inline text-xs text-muted/70 font-mono">match_id: {id}</span>
           </div>
           <div className="flex gap-2">
             <Button
@@ -1245,7 +1237,7 @@ export const ReplayPage: React.FC = () => {
             </CardHeader>
             <CardContent className="grid grid-cols-2 gap-3">
               <div>
-                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">{t.replayYou}</div>
+                <div className="text-xs font-semibold text-muted uppercase tracking-wider mb-2">{t.replayYou}</div>
                 <div className="flex flex-wrap gap-1">
                   {augA.length ? (
                     augA.map((a) => (
@@ -1254,12 +1246,12 @@ export const ReplayPage: React.FC = () => {
                       </Badge>
                     ))
                   ) : (
-                    <span className="text-sm text-slate-500">—</span>
+                    <span className="text-sm text-muted">—</span>
                   )}
                 </div>
               </div>
               <div>
-                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">{t.replayOpponent}</div>
+                <div className="text-xs font-semibold text-muted uppercase tracking-wider mb-2">{t.replayOpponent}</div>
                 <div className="flex flex-wrap gap-1 justify-end">
                   {augB.length ? (
                     augB.map((a) => (
@@ -1268,7 +1260,7 @@ export const ReplayPage: React.FC = () => {
                       </Badge>
                     ))
                   ) : (
-                    <span className="text-sm text-slate-500">—</span>
+                    <span className="text-sm text-muted">—</span>
                   )}
                 </div>
               </div>
@@ -1277,7 +1269,7 @@ export const ReplayPage: React.FC = () => {
         ) : null}
 
         {sharecardMutation.error ? (
-          <div className="text-xs text-red-600 break-words">{String(sharecardMutation.error)}</div>
+          <div className="text-xs text-danger-500 break-words">{String(sharecardMutation.error)}</div>
         ) : null}
 
         {me?.is_guest ? (
@@ -1288,7 +1280,7 @@ export const ReplayPage: React.FC = () => {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="text-sm text-slate-600">
+              <div className="text-sm text-muted">
                 Pick a recommended starter build and queue ranked in one tap.
               </div>
               <div className="flex flex-wrap gap-2">
@@ -1306,7 +1298,7 @@ export const ReplayPage: React.FC = () => {
                 ))}
               </div>
               {starterRankedMutation.error ? (
-                <div className="text-xs text-red-600 break-words">{String(starterRankedMutation.error)}</div>
+                <div className="text-xs text-danger-500 break-words">{String(starterRankedMutation.error)}</div>
               ) : null}
             </CardContent>
           </Card>
@@ -1320,14 +1312,14 @@ export const ReplayPage: React.FC = () => {
           </CardHeader>
           <CardContent className="grid grid-cols-1 md:grid-cols-12 gap-4">
             <div className="md:col-span-7 space-y-2">
-              <div className="text-sm font-bold text-slate-800">{bestClip?.title ?? 'Turning Point'}</div>
-              <div className="text-xs text-slate-600">{bestClip?.summary ?? ''}</div>
+              <div className="text-sm font-bold text-fg">{bestClip?.title ?? 'Turning Point'}</div>
+              <div className="text-xs text-muted">{bestClip?.summary ?? ''}</div>
               {bestClip ? (
-                <div className="text-[10px] font-mono text-slate-500">
+                <div className="text-[10px] font-mono text-muted">
                   {bestClip.start_sec.toFixed(1)}s–{bestClip.end_sec.toFixed(1)}s · replay_id: {bestClip.replay_id}
                 </div>
               ) : (
-                <div className="text-xs text-slate-500">Loading…</div>
+                <div className="text-xs text-muted">Loading…</div>
               )}
 
               <div className="flex flex-wrap gap-2 items-center pt-1">
@@ -1389,7 +1381,7 @@ export const ReplayPage: React.FC = () => {
                         }
                       })();
                     }}
-                    className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50"
+                    className="text-xs font-bold px-3 py-2 rounded-2xl border border-border/12 bg-surface-2/35 hover:bg-surface-2/45 text-fg"
                   >
                     View Original
                   </a>
@@ -1429,7 +1421,7 @@ export const ReplayPage: React.FC = () => {
                   <a
                     href={`/s/clip/${encodeURIComponent(bestClip.replay_id)}/kit.zip?start=${bestClip.start_sec.toFixed(1)}&end=${bestClip.end_sec.toFixed(1)}&ref=in_app`}
                     download={`neuroleague_creator_kit_${id ?? 'match'}.zip`}
-                    className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50"
+                    className="text-xs font-bold px-3 py-2 rounded-2xl border border-border/12 bg-surface-2/35 hover:bg-surface-2/45 text-fg"
                   >
                     Download Kit
                   </a>
@@ -1438,7 +1430,7 @@ export const ReplayPage: React.FC = () => {
                   <a
                     href={bestMp4Url}
                     download={`neuroleague_best_clip_${id ?? 'match'}.mp4`}
-                    className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50"
+                    className="text-xs font-bold px-3 py-2 rounded-2xl border border-border/12 bg-surface-2/35 hover:bg-surface-2/45 text-fg"
                   >
                     Download MP4
                   </a>
@@ -1446,24 +1438,24 @@ export const ReplayPage: React.FC = () => {
               </div>
 
               {bestClipMutation.error ? (
-                <div className="text-xs text-red-600 break-words">{String(bestClipMutation.error)}</div>
+                <div className="text-xs text-danger-500 break-words">{String(bestClipMutation.error)}</div>
               ) : null}
               {reactMutation.error ? (
-                <div className="text-xs text-red-600 break-words">{String(reactMutation.error)}</div>
+                <div className="text-xs text-danger-500 break-words">{String(reactMutation.error)}</div>
               ) : null}
             </div>
 
             <div className="md:col-span-5">
-              <div className="bg-white rounded-xl border border-slate-200 p-3">
+              <div className="bg-surface-2/35 rounded-2xl border border-border/12 p-3 shadow-glass">
                 {bestMp4Url ? (
                   <video
                     src={bestMp4Url}
                     controls
                     playsInline
-                    className="w-full rounded-lg border border-slate-200 bg-slate-950"
+                    className="w-full rounded-2xl border border-border/12 bg-bg"
                   />
                 ) : (
-                  <div className="text-xs text-slate-500">
+                  <div className="text-xs text-muted">
                     {bestClip?.assets?.find((a) => a.kind === 'vertical_mp4')?.status === 'done'
                       ? 'Best clip is ready. Click “Generate Vertical MP4” to load preview.'
                       : 'No vertical clip yet.'}
@@ -1474,7 +1466,7 @@ export const ReplayPage: React.FC = () => {
           </CardContent>
         </Card>
 
-        <div className="flex-1 bg-slate-900 rounded-3xl relative overflow-hidden shadow-inner group">
+        <div className="flex-1 bg-bg rounded-3xl relative overflow-hidden shadow-inner border border-border/10 group">
           <BattleViewport
             replay={replay}
             tick={tick}
@@ -1517,11 +1509,11 @@ export const ReplayPage: React.FC = () => {
           ) : null}
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+        <div className="bg-surface-1/55 backdrop-blur-xl p-4 rounded-3xl border border-border/12 shadow-glass">
           <div className="relative h-8 mb-4">
             <input
               type="range"
-              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-brand-600"
+              className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-brand-500"
               min={0}
               max={Math.max(1, durationTicks)}
               step={1}
@@ -1541,7 +1533,7 @@ export const ReplayPage: React.FC = () => {
               {markers.map((m, idx) => (
                 <div
                   key={`${m.t}-${idx}`}
-                  className={`absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 ${m.color} rounded-full border-2 border-white shadow-sm`}
+                  className={`absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 ${m.color} rounded-full border-2 border-bg shadow-sm`}
                   style={{ left: `${(m.t / Math.max(1, durationTicks)) * 100}%` }}
                   title={m.title}
                 ></div>
@@ -1579,10 +1571,10 @@ export const ReplayPage: React.FC = () => {
               <SkipForward size={20} />
             </Button>
 
-            <div className="w-px h-8 bg-slate-200 mx-4"></div>
+            <div className="w-px h-8 bg-border/10 mx-4"></div>
 
             <div className="flex gap-2 items-center">
-              <span className="text-xs font-bold text-slate-400 uppercase">{t.events}:</span>
+              <span className="text-xs font-bold text-muted uppercase">{t.events}:</span>
               <Badge variant="warning" className="cursor-pointer">
                 <Flame size={10} className="mr-1" /> {t.highDamage}
               </Badge>
@@ -1591,7 +1583,7 @@ export const ReplayPage: React.FC = () => {
               </Badge>
             </div>
 
-            <div className="w-px h-8 bg-slate-200 mx-4"></div>
+            <div className="w-px h-8 bg-border/10 mx-4"></div>
 
             <div className="flex items-center gap-2">
               {[1, 2, 4].map((s) => (
@@ -1599,10 +1591,10 @@ export const ReplayPage: React.FC = () => {
                   key={s}
                   type="button"
                   onClick={() => setSpeed(s as 1 | 2 | 4)}
-                  className={`text-xs font-bold px-2 py-1 rounded-lg border ${
+                  className={`text-xs font-bold px-2 py-1 rounded-xl border transition-colors ${
                     speed === s
-                      ? 'bg-brand-50 text-brand-700 border-brand-200'
-                      : 'bg-white text-slate-500 border-slate-200'
+                      ? 'bg-brand-500/15 text-fg border-brand-500/25'
+                      : 'bg-surface-2/35 text-fg/70 border-border/12 hover:bg-surface-2/45'
                   }`}
                 >
                   {s}x
@@ -1623,8 +1615,8 @@ export const ReplayPage: React.FC = () => {
 
           <div className="mt-4 flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Clip</div>
-              <div className="text-[10px] font-mono text-slate-500">
+              <div className="text-xs font-bold text-muted uppercase tracking-wider">Clip</div>
+              <div className="text-[10px] font-mono text-muted">
                 t={((clipStartTick ?? tick) / 20).toFixed(1)}s
                 {clipEndTick != null ? ` → end=${(clipEndTick / 20).toFixed(1)}s` : ''}
               </div>
@@ -1674,21 +1666,21 @@ export const ReplayPage: React.FC = () => {
                 Copy App Link
               </Button>
               {reduceMotion ? (
-                <span className="text-[10px] text-slate-500">Reduce motion ON</span>
+                <span className="text-[10px] text-muted">Reduce motion ON</span>
               ) : null}
             </div>
 
-            {clipGenError ? <div className="text-xs text-red-600">{clipGenError}</div> : null}
-            {challengeError ? <div className="text-xs text-red-600">{challengeError}</div> : null}
+            {clipGenError ? <div className="text-xs text-danger-500">{clipGenError}</div> : null}
+            {challengeError ? <div className="text-xs text-danger-500">{challengeError}</div> : null}
             {challengeLink ? (
-              <div className="text-[11px] text-slate-500 break-all">
+              <div className="text-[11px] text-muted break-all">
                 Beat This: <span className="font-mono">{challengeLink}</span>
               </div>
             ) : null}
 
             <div className="grid grid-cols-1 md:grid-cols-12 gap-3 mt-2">
-              <div className="md:col-span-5 bg-white rounded-xl border border-slate-200 p-3">
-                <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Thumbnail</div>
+              <div className="md:col-span-5 bg-surface-2/35 rounded-2xl border border-border/12 p-3 shadow-glass">
+                <div className="text-xs font-bold text-muted uppercase tracking-wider">Thumbnail</div>
                 <div className="flex flex-wrap gap-2 mt-2">
                   <Button
                     variant="secondary"
@@ -1713,16 +1705,16 @@ export const ReplayPage: React.FC = () => {
                     <img
                       src={thumbUrl}
                       alt="Clip thumbnail"
-                      className="w-full rounded-lg border border-slate-200"
+                      className="w-full rounded-2xl border border-border/12"
                     />
                   ) : (
-                    <div className="text-xs text-slate-500">No thumbnail yet.</div>
+                    <div className="text-xs text-muted">No thumbnail yet.</div>
                   )}
                 </div>
               </div>
 
-              <div className="md:col-span-7 bg-white rounded-xl border border-slate-200 p-3">
-                <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Export</div>
+              <div className="md:col-span-7 bg-surface-2/35 rounded-2xl border border-border/12 p-3 shadow-glass">
+                <div className="text-xs font-bold text-muted uppercase tracking-wider">Export</div>
                 <div className="flex flex-wrap gap-2 mt-2 items-center">
                   <Button
                     variant="secondary"
@@ -1746,7 +1738,7 @@ export const ReplayPage: React.FC = () => {
                     <a
                       href={webmUrl}
                       download={`neuroleague_clip_${id ?? 'match'}.webm`}
-                      className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50"
+                      className="text-xs font-bold px-3 py-2 rounded-2xl border border-border/12 bg-surface-3/30 hover:bg-surface-3/40 text-fg"
                     >
                       Download WebM
                     </a>
@@ -1755,7 +1747,7 @@ export const ReplayPage: React.FC = () => {
                     <a
                       href={gifUrl}
                       download={`neuroleague_clip_${id ?? 'match'}.gif`}
-                      className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50"
+                      className="text-xs font-bold px-3 py-2 rounded-2xl border border-border/12 bg-surface-3/30 hover:bg-surface-3/40 text-fg"
                     >
                       Download GIF
                     </a>
@@ -1771,7 +1763,7 @@ export const ReplayPage: React.FC = () => {
                     </Button>
                   </div>
                 ) : (
-                  <div className="mt-2 text-xs text-slate-500">Replay not ready.</div>
+                  <div className="mt-2 text-xs text-muted">Replay not ready.</div>
                 )}
               </div>
             </div>
@@ -1784,15 +1776,15 @@ export const ReplayPage: React.FC = () => {
           <CardHeader>
             <CardTitle>{t.insights}</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2">
-            {insights.map((line, idx) => (
-              <div key={`${idx}-${line}`} className="text-sm text-slate-700">
-                {line}
-              </div>
-            ))}
-            {insights.length === 0 ? <div className="text-sm text-slate-500">Loading…</div> : null}
-          </CardContent>
-        </Card>
+        <CardContent className="space-y-2">
+          {insights.map((line, idx) => (
+            <div key={`${idx}-${line}`} className="text-sm text-fg/85">
+              {line}
+            </div>
+          ))}
+          {insights.length === 0 ? <div className="text-sm text-muted">Loading…</div> : null}
+        </CardContent>
+      </Card>
 
         <Card>
           <CardHeader>
@@ -1805,17 +1797,17 @@ export const ReplayPage: React.FC = () => {
               <button
                 key={h.rank}
                 type="button"
-                className="w-full text-left p-3 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors"
+                className="w-full text-left p-3 rounded-2xl border border-border/12 bg-surface-2/25 hover:bg-surface-2/35 transition-colors"
                 onClick={() => setTick(h.start_t)}
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-500">#{h.rank}</span>
-                  <span className="text-[10px] font-mono text-slate-400">
+                  <span className="text-xs font-bold text-muted">#{h.rank}</span>
+                  <span className="text-[10px] font-mono text-muted/70">
                     {formatClock(h.start_t)}–{formatClock(h.end_t)}
                   </span>
                 </div>
-                <div className="font-bold text-sm text-slate-800 mt-1">{h.title}</div>
-                <div className="text-xs text-slate-600 mt-1">{h.summary}</div>
+                <div className="font-bold text-sm text-fg mt-1">{h.title}</div>
+                <div className="text-xs text-muted mt-1">{h.summary}</div>
                 <div className="mt-2">
                   <Button
                     variant="outline"
@@ -1833,7 +1825,7 @@ export const ReplayPage: React.FC = () => {
               </button>
             ))}
             {(replay?.highlights ?? match?.highlights ?? []).length === 0 ? (
-              <div className="text-sm text-slate-500">No highlights.</div>
+              <div className="text-sm text-muted">No highlights.</div>
             ) : null}
           </CardContent>
         </Card>
@@ -1848,16 +1840,16 @@ export const ReplayPage: React.FC = () => {
                 key={`${e.t}-${idx}`}
                 type="button"
                 onClick={() => setTick(e.t)}
-                className={`w-full text-left p-2 rounded-lg border transition-colors ${
-                  e.t === tick ? 'border-brand-300 bg-brand-50' : 'border-slate-200 hover:bg-slate-50'
+                className={`w-full text-left p-2 rounded-xl border transition-colors ${
+                  e.t === tick ? 'border-brand-500/35 bg-brand-500/12' : 'border-border/12 bg-surface-2/25 hover:bg-surface-2/35'
                 }`}
               >
                 <div className="flex justify-between items-center">
-                  <span className="text-xs font-mono text-slate-500">{e.t}t</span>
-                  <span className="text-xs font-bold text-slate-700">{e.type}</span>
+                  <span className="text-xs font-mono text-muted">{e.t}t</span>
+                  <span className="text-xs font-bold text-fg/85">{e.type}</span>
                 </div>
                 {e.type === 'SYNERGY_TRIGGER' ? (
-                  <div className="text-[11px] text-slate-600 mt-1">
+                  <div className="text-[11px] text-muted mt-1">
                     {(() => {
                       const payload = e.payload ?? {};
                       const team = String(payload.team ?? '');
@@ -1874,7 +1866,7 @@ export const ReplayPage: React.FC = () => {
                 ) : null}
               </button>
             ))}
-            {windowEvents.length === 0 ? <div className="text-sm text-slate-500">Loading…</div> : null}
+            {windowEvents.length === 0 ? <div className="text-sm text-muted">Loading…</div> : null}
           </CardContent>
         </Card>
       </div>

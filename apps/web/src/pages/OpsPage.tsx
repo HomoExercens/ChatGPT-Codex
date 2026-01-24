@@ -335,7 +335,7 @@ export const OpsPage: React.FC = () => {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <ShieldAlert size={18} className="text-slate-500" /> Ops Dashboard
+            <ShieldAlert size={18} className="text-muted" /> Ops Dashboard
           </CardTitle>
           <Badge variant={enabled ? 'success' : 'warning'}>{enabled ? 'Admin enabled' : 'Enter admin token'}</Badge>
         </CardHeader>
@@ -348,7 +348,7 @@ export const OpsPage: React.FC = () => {
                 onChange={(e) => setAdminToken(e.target.value)}
                 placeholder="Set NEUROLEAGUE_ADMIN_TOKEN and paste it here"
               />
-              <div className="mt-2 text-xs text-slate-500">
+              <div className="mt-2 text-xs text-muted">
                 This page calls admin-gated endpoints with <span className="font-mono">X-Admin-Token</span>.
               </div>
             </div>
@@ -362,39 +362,39 @@ export const OpsPage: React.FC = () => {
             </div>
           </div>
           {summaryError ? (
-            <div className="text-sm text-red-600">
+            <div className="text-sm text-danger-500">
               Failed to load ops metrics: {String(summaryError)}
-              <div className="text-xs text-slate-500 mt-1">Tip: set NEUROLEAGUE_ADMIN_TOKEN in the API process.</div>
+              <div className="text-xs text-muted mt-1">Tip: set NEUROLEAGUE_ADMIN_TOKEN in the API process.</div>
             </div>
           ) : null}
 
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <a className="font-semibold text-brand-700 hover:underline" href="/ops/moderation">
+            <a className="font-semibold text-brand-200 hover:underline" href="/ops/moderation">
               Moderation Inbox →
             </a>
-            <a className="font-semibold text-brand-700 hover:underline" href="/ops/featured">
+            <a className="font-semibold text-brand-200 hover:underline" href="/ops/featured">
               Featured →
             </a>
-            <a className="font-semibold text-brand-700 hover:underline" href="/ops/hero">
+            <a className="font-semibold text-brand-200 hover:underline" href="/ops/hero">
               Hero Clips →
             </a>
-            <a className="font-semibold text-brand-700 hover:underline" href="/ops/build-of-day">
+            <a className="font-semibold text-brand-200 hover:underline" href="/ops/build-of-day">
               Build of Day →
             </a>
-            <a className="font-semibold text-brand-700 hover:underline" href="/ops/quests">
+            <a className="font-semibold text-brand-200 hover:underline" href="/ops/quests">
               Quests →
             </a>
-            <a className="font-semibold text-brand-700 hover:underline" href="/ops/discord">
+            <a className="font-semibold text-brand-200 hover:underline" href="/ops/discord">
               Discord →
             </a>
-            <a className="font-semibold text-brand-700 hover:underline" href="/ops/packs">
+            <a className="font-semibold text-brand-200 hover:underline" href="/ops/packs">
               Packs →
             </a>
-            <a className="font-semibold text-brand-700 hover:underline" href="/ops/weekly">
+            <a className="font-semibold text-brand-200 hover:underline" href="/ops/weekly">
               Weekly →
             </a>
-            <span className="text-slate-400">·</span>
-            <span className="text-slate-500">
+            <span className="text-muted/60">·</span>
+            <span className="text-muted">
               smoke: <span className="font-mono">NEUROLEAGUE_PUBLIC_BASE_URL=… NEUROLEAGUE_ADMIN_TOKEN=… make deploy-smoke</span>
             </span>
           </div>
@@ -405,60 +405,60 @@ export const OpsPage: React.FC = () => {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <ShieldAlert size={18} className="text-slate-500" /> Deploy Sanity
+              <ShieldAlert size={18} className="text-muted" /> Deploy Sanity
             </CardTitle>
             <Badge variant="neutral">{status?.ruleset_version ?? '—'}</Badge>
           </CardHeader>
           <CardContent className="grid grid-cols-1 md:grid-cols-12 gap-3">
-            <div className="md:col-span-4 rounded-xl border border-slate-200 bg-white px-3 py-3">
-              <div className="text-[11px] font-bold text-slate-500 uppercase">DB</div>
+            <div className="md:col-span-4 rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">
+              <div className="text-[11px] font-bold text-muted uppercase">DB</div>
               <div className="mt-1 flex items-center gap-2">
-                <Badge variant={status?.db?.ok ? 'success' : 'danger'}>{status?.db?.ok ? 'ok' : 'fail'}</Badge>
-                <span className="text-xs text-slate-600 truncate">{status?.db?.error ?? ''}</span>
+                <Badge variant={status?.db?.ok ? 'success' : 'error'}>{status?.db?.ok ? 'ok' : 'fail'}</Badge>
+                <span className="text-xs text-muted truncate">{status?.db?.error ?? ''}</span>
               </div>
             </div>
-            <div className="md:col-span-4 rounded-xl border border-slate-200 bg-white px-3 py-3">
-              <div className="text-[11px] font-bold text-slate-500 uppercase">Storage</div>
+            <div className="md:col-span-4 rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">
+              <div className="text-[11px] font-bold text-muted uppercase">Storage</div>
               <div className="mt-1 flex items-center gap-2">
-                <Badge variant={status?.storage?.ok ? 'success' : 'danger'}>{status?.storage?.ok ? 'ok' : 'fail'}</Badge>
-                <span className="text-xs text-slate-600">{status?.storage?.backend ?? '—'}</span>
+                <Badge variant={status?.storage?.ok ? 'success' : 'error'}>{status?.storage?.ok ? 'ok' : 'fail'}</Badge>
+                <span className="text-xs text-muted">{status?.storage?.backend ?? '—'}</span>
               </div>
             </div>
-            <div className="md:col-span-4 rounded-xl border border-slate-200 bg-white px-3 py-3">
-              <div className="text-[11px] font-bold text-slate-500 uppercase">Ray</div>
+            <div className="md:col-span-4 rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">
+              <div className="text-[11px] font-bold text-muted uppercase">Ray</div>
               <div className="mt-1 flex items-center gap-2">
                 <Badge variant={status?.ray?.ok ? 'success' : 'warning'}>{status?.ray?.ok ? 'ok' : 'down'}</Badge>
-                <span className="text-xs text-slate-600">nodes {status?.ray?.nodes ?? 0}</span>
+                <span className="text-xs text-muted">nodes {status?.ray?.nodes ?? 0}</span>
               </div>
             </div>
-            <div className="md:col-span-4 rounded-xl border border-slate-200 bg-white px-3 py-3">
-              <div className="text-[11px] font-bold text-slate-500 uppercase">Worker</div>
+            <div className="md:col-span-4 rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">
+              <div className="text-[11px] font-bold text-muted uppercase">Worker</div>
               <div className="mt-1 flex items-center gap-2">
                 <Badge variant={status?.worker_ok ? 'success' : 'warning'}>{status?.worker_ok ? 'ok' : 'down'}</Badge>
-                <span className="text-xs text-slate-600">pending jobs {status?.pending_jobs_count ?? 0}</span>
+                <span className="text-xs text-muted">pending jobs {status?.pending_jobs_count ?? 0}</span>
               </div>
             </div>
-            <div className="md:col-span-6 rounded-xl border border-slate-200 bg-white px-3 py-3">
-              <div className="text-[11px] font-bold text-slate-500 uppercase">Render Jobs</div>
-              <div className="mt-1 text-xs text-slate-700">
+            <div className="md:col-span-6 rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">
+              <div className="text-[11px] font-bold text-muted uppercase">Render Jobs</div>
+              <div className="mt-1 text-xs text-fg/80">
                 queued {status?.render_jobs?.queued ?? 0} · running {status?.render_jobs?.running ?? 0}
               </div>
             </div>
-            <div className="md:col-span-6 rounded-xl border border-slate-200 bg-white px-3 py-3">
-              <div className="text-[11px] font-bold text-slate-500 uppercase">Scheduler</div>
-              <div className="mt-1 text-xs text-slate-700">
+            <div className="md:col-span-6 rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">
+              <div className="text-[11px] font-bold text-muted uppercase">Scheduler</div>
+              <div className="mt-1 text-xs text-fg/80">
                 {status?.scheduler?.enabled ? 'enabled' : 'disabled'} · every {status?.scheduler?.interval_minutes ?? 0}m
               </div>
-              <div className="mt-1 text-xs text-slate-500">
+              <div className="mt-1 text-xs text-muted">
                 last rollup {status?.last_rollup_at ?? '—'} · last balance {status?.last_balance_report_at ?? '—'}
               </div>
             </div>
-            <div className="md:col-span-6 rounded-xl border border-slate-200 bg-white px-3 py-3">
-              <div className="text-[11px] font-bold text-slate-500 uppercase">Moderation</div>
-              <div className="mt-1 text-xs text-slate-700">open reports {status?.reports_pending ?? 0}</div>
-              <div className="mt-1 text-xs text-slate-500">last backup {status?.last_backup_at ?? '—'}</div>
+            <div className="md:col-span-6 rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">
+              <div className="text-[11px] font-bold text-muted uppercase">Moderation</div>
+              <div className="mt-1 text-xs text-fg/80">open reports {status?.reports_pending ?? 0}</div>
+              <div className="mt-1 text-xs text-muted">last backup {status?.last_backup_at ?? '—'}</div>
             </div>
-            <div className="md:col-span-12 text-xs text-slate-500">
+            <div className="md:col-span-12 text-xs text-muted">
               pack_hash: <span className="font-mono">{status?.pack_hash ?? '—'}</span>
             </div>
           </CardContent>
@@ -470,44 +470,44 @@ export const OpsPage: React.FC = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <ShieldAlert size={18} className="text-slate-500" /> Next Fest Live
+                <ShieldAlert size={18} className="text-muted" /> Next Fest Live
               </CardTitle>
               <Badge variant="neutral">today</Badge>
             </CardHeader>
             <CardContent>
               {enabled ? (
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-                  <div className="md:col-span-6 rounded-xl border border-slate-200 bg-white px-3 py-3">
-                    <div className="text-[11px] font-bold text-slate-500 uppercase">Demo completion</div>
-                    <div className="mt-1 text-sm font-semibold text-slate-800">
+                  <div className="md:col-span-6 rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">
+                    <div className="text-[11px] font-bold text-muted uppercase">Demo completion</div>
+                    <div className="mt-1 text-sm font-semibold text-fg">
                       {demoCompletionRate !== null ? `${(demoCompletionRate * 100).toFixed(1)}%` : '—'}
                     </div>
-                    <div className="mt-1 text-xs text-slate-600">
+                    <div className="mt-1 text-xs text-muted">
                       start {demoStartToday} · done {demoDoneToday}
                     </div>
                   </div>
-                  <div className="md:col-span-6 rounded-xl border border-slate-200 bg-white px-3 py-3">
-                    <div className="text-[11px] font-bold text-slate-500 uppercase">Conversion</div>
-                    <div className="mt-1 text-xs text-slate-700">kit downloads {demoKitDownloadsToday}</div>
-                    <div className="mt-1 text-xs text-slate-700">wishlist clicks {wishlistClicksToday}</div>
+                  <div className="md:col-span-6 rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">
+                    <div className="text-[11px] font-bold text-muted uppercase">Conversion</div>
+                    <div className="mt-1 text-xs text-fg/80">kit downloads {demoKitDownloadsToday}</div>
+                    <div className="mt-1 text-xs text-fg/80">wishlist clicks {wishlistClicksToday}</div>
                   </div>
-                  <div className="md:col-span-6 rounded-xl border border-slate-200 bg-white px-3 py-3">
-                    <div className="text-[11px] font-bold text-slate-500 uppercase">Stability</div>
-                    <div className="mt-1 text-xs text-slate-700">5xx errors (60m) {errors5xx}</div>
-                    <div className="mt-1 text-xs text-slate-700">
+                  <div className="md:col-span-6 rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">
+                    <div className="text-[11px] font-bold text-muted uppercase">Stability</div>
+                    <div className="mt-1 text-xs text-fg/80">5xx errors (60m) {errors5xx}</div>
+                    <div className="mt-1 text-xs text-fg/80">
                       render backlog {(status?.render_jobs?.queued ?? 0) + (status?.render_jobs?.running ?? 0)}
                     </div>
                   </div>
-                  <div className="md:col-span-6 rounded-xl border border-slate-200 bg-white px-3 py-3">
-                    <div className="text-[11px] font-bold text-slate-500 uppercase">Alerts</div>
-                    <div className="mt-1 text-xs text-slate-700">
+                  <div className="md:col-span-6 rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">
+                    <div className="text-[11px] font-bold text-muted uppercase">Alerts</div>
+                    <div className="mt-1 text-xs text-fg/80">
                       last check <span className="font-mono">{recentAlerts?.last_run_at ?? '—'}</span>
                     </div>
-                    <div className="mt-1 text-xs text-slate-700">recent alerts {recentAlerts?.items?.length ?? 0}</div>
+                    <div className="mt-1 text-xs text-fg/80">recent alerts {recentAlerts?.items?.length ?? 0}</div>
                   </div>
                 </div>
               ) : (
-                <div className="text-sm text-slate-500">Enter admin token to view festival KPIs.</div>
+                <div className="text-sm text-muted">Enter admin token to view festival KPIs.</div>
               )}
             </CardContent>
           </Card>
@@ -515,7 +515,7 @@ export const OpsPage: React.FC = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <ShieldAlert size={18} className="text-slate-500" /> Alerts
+                <ShieldAlert size={18} className="text-muted" /> Alerts
               </CardTitle>
               <Badge variant={recentAlerts?.items?.length ? 'warning' : 'neutral'}>
                 {recentAlerts?.items?.length ? 'active' : 'none'}
@@ -524,34 +524,34 @@ export const OpsPage: React.FC = () => {
             <CardContent>
               {enabled ? (
                 <>
-                  <div className="text-xs text-slate-500">
+                  <div className="text-xs text-muted">
                     last check: <span className="font-mono">{recentAlerts?.last_run_at ?? '—'}</span>
                   </div>
                   {recentAlerts?.items?.length ? (
                     <div className="mt-3 space-y-2">
                       {recentAlerts.items.map((row) => (
-                        <div key={row.alert_key + row.created_at} className="rounded-xl border border-slate-200 bg-white px-3 py-3">
+                        <div key={row.alert_key + row.created_at} className="rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">
                           <div className="flex items-center justify-between gap-3">
-                            <div className="text-xs text-slate-700 font-mono truncate">{row.alert_key}</div>
+                            <div className="text-xs text-fg/80 font-mono truncate">{row.alert_key}</div>
                             <Badge variant={row.outbox_status === 'sent' ? 'success' : row.outbox_status ? 'warning' : 'neutral'}>
                               {row.outbox_status ?? '—'}
                             </Badge>
                           </div>
-                          <div className="mt-1 text-[11px] text-slate-600">
+                          <div className="mt-1 text-[11px] text-muted">
                             {row.summary ?? '—'} · {row.created_at}
                           </div>
                           {row.outbox_last_error ? (
-                            <div className="mt-1 text-[11px] text-red-600 font-mono truncate">{row.outbox_last_error}</div>
+                            <div className="mt-1 text-[11px] text-danger-500 font-mono truncate">{row.outbox_last_error}</div>
                           ) : null}
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <div className="mt-2 text-sm text-slate-500">No alerts sent recently.</div>
+                    <div className="mt-2 text-sm text-muted">No alerts sent recently.</div>
                   )}
                 </>
               ) : (
-                <div className="text-sm text-slate-500">Enter admin token to view alerts.</div>
+                <div className="text-sm text-muted">Enter admin token to view alerts.</div>
               )}
             </CardContent>
           </Card>
@@ -559,7 +559,7 @@ export const OpsPage: React.FC = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <ShieldAlert size={18} className="text-slate-500" /> Recent Errors (last 60m)
+                <ShieldAlert size={18} className="text-muted" /> Recent Errors (last 60m)
               </CardTitle>
               <Badge variant={recentErrors?.items?.length ? 'warning' : 'success'}>
                 {recentErrors?.items?.length ? 'active' : 'none'}
@@ -572,15 +572,15 @@ export const OpsPage: React.FC = () => {
                     {recentErrors.items.map((row) => (
                       <div
                         key={`${row.method}:${row.path}:${row.status}`}
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-3"
+                        className="rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3"
                       >
                         <div className="flex items-center justify-between gap-3">
-                          <div className="text-xs text-slate-700 font-mono truncate">
+                          <div className="text-xs text-fg/80 font-mono truncate">
                             {row.method} {row.path}
                           </div>
-                          <Badge variant={row.status >= 500 ? 'danger' : 'warning'}>{row.status}</Badge>
+                          <Badge variant={row.status >= 500 ? 'error' : 'warning'}>{row.status}</Badge>
                         </div>
-                        <div className="mt-1 text-[11px] text-slate-600">
+                        <div className="mt-1 text-[11px] text-muted">
                           count {row.count} · last {row.last_at ?? '—'} · request_id{' '}
                           <span className="font-mono">{row.last_request_id ?? '—'}</span>
                         </div>
@@ -588,10 +588,10 @@ export const OpsPage: React.FC = () => {
                     ))}
                   </div>
                 ) : (
-                  <div className="text-sm text-slate-500">No errors in the last hour.</div>
+                  <div className="text-sm text-muted">No errors in the last hour.</div>
                 )
               ) : (
-                <div className="text-sm text-slate-500">Enter admin token to view recent errors.</div>
+                <div className="text-sm text-muted">Enter admin token to view recent errors.</div>
               )}
             </CardContent>
           </Card>
@@ -599,7 +599,7 @@ export const OpsPage: React.FC = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Activity size={18} className="text-brand-600" /> Growth KPIs
+                <Activity size={18} className="text-brand-200" /> Growth KPIs
               </CardTitle>
               <Badge variant="neutral">{summary?.range ?? range}</Badge>
             </CardHeader>
@@ -608,17 +608,17 @@ export const OpsPage: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {kpiRows.length ? (
                     kpiRows.map((row) => (
-                      <div key={row.key} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
-                        <div className="text-[11px] font-bold text-slate-500 uppercase">{row.key}</div>
-                        <div className="text-sm font-semibold text-slate-800">{String(row.value)}</div>
+                      <div key={row.key} className="rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-2">
+                        <div className="text-[11px] font-bold text-muted uppercase">{row.key}</div>
+                        <div className="text-sm font-semibold text-fg">{String(row.value)}</div>
                       </div>
                     ))
                   ) : (
-                    <div className="text-sm text-slate-500">No rollups yet. Run make ops-metrics-rollup.</div>
+                    <div className="text-sm text-muted">No rollups yet. Run make ops-metrics-rollup.</div>
                   )}
                 </div>
               ) : (
-                <div className="text-sm text-slate-500">Enter admin token to view metrics.</div>
+                <div className="text-sm text-muted">Enter admin token to view metrics.</div>
               )}
             </CardContent>
           </Card>
@@ -626,35 +626,35 @@ export const OpsPage: React.FC = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <LineChart size={18} className="text-slate-500" /> Funnels (daily)
+                <LineChart size={18} className="text-muted" /> Funnels (daily)
               </CardTitle>
               <Badge variant="neutral">{shareFunnelDaily?.range ?? range}</Badge>
             </CardHeader>
             <CardContent className="space-y-4">
               {enabled ? (
                 <>
-                  <div className="text-xs text-slate-500">Today · 7d avg · Δ vs yesterday</div>
+                  <div className="text-xs text-muted">Today · 7d avg · Δ vs yesterday</div>
                   {[
                     { title: 'Share funnel (share_v1)', data: shareFunnelDaily },
                     { title: 'Clips funnel (clips_v1)', data: clipsFunnelDaily },
                     { title: 'Demo funnel (demo_v1)', data: demoFunnelDaily },
                   ].map((block) => (
-                    <div key={block.title} className="rounded-xl border border-slate-200 bg-white px-3 py-3">
+                    <div key={block.title} className="rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">
                       <div className="flex items-center justify-between">
-                        <div className="text-sm font-bold text-slate-800">{block.title}</div>
+                        <div className="text-sm font-bold text-fg">{block.title}</div>
                         <Badge variant="neutral">{block.data?.steps?.length ? 'ok' : 'empty'}</Badge>
                       </div>
                       {block.data?.steps?.length ? (
                         <div className="mt-3 space-y-2">
                           {block.data.steps.map((s) => {
-                            const deltaVariant = s.delta > 0 ? 'success' : s.delta < 0 ? 'danger' : 'neutral';
+                            const deltaVariant = s.delta > 0 ? 'success' : s.delta < 0 ? 'error' : 'neutral';
                             const avgLabel = Number.isFinite(s.avg_7d) ? s.avg_7d.toFixed(1) : '0.0';
                             return (
                               <div
                                 key={s.step}
-                                className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2"
+                                className="flex items-center justify-between rounded-xl border border-border/10 bg-surface-1/25 px-3 py-2"
                               >
-                                <div className="text-xs font-semibold text-slate-800">{s.step}</div>
+                                <div className="text-xs font-semibold text-fg/85">{s.step}</div>
                                 <div className="flex items-center gap-2 text-xs">
                                   <Badge variant="neutral">today {s.today}</Badge>
                                   <Badge variant="neutral">avg {avgLabel}</Badge>
@@ -668,13 +668,13 @@ export const OpsPage: React.FC = () => {
                           })}
                         </div>
                       ) : (
-                        <div className="mt-2 text-sm text-slate-500">No funnel data yet. Run ops rollup.</div>
+                        <div className="mt-2 text-sm text-muted">No funnel data yet. Run ops rollup.</div>
                       )}
                     </div>
                   ))}
                 </>
               ) : (
-                <div className="text-sm text-slate-500">Enter admin token to view funnels.</div>
+                <div className="text-sm text-muted">Enter admin token to view funnels.</div>
               )}
             </CardContent>
           </Card>
@@ -682,7 +682,7 @@ export const OpsPage: React.FC = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <LineChart size={18} className="text-slate-500" /> Funnel (growth_v1)
+                <LineChart size={18} className="text-muted" /> Funnel (growth_v1)
               </CardTitle>
               <Badge variant="neutral">{funnel?.range ?? range}</Badge>
             </CardHeader>
@@ -690,14 +690,14 @@ export const OpsPage: React.FC = () => {
               {funnel?.steps?.length ? (
                 <div className="space-y-2">
                   {funnel.steps.map((s) => (
-                    <div key={s.step} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2">
-                      <div className="text-sm font-semibold text-slate-800">{s.step}</div>
+                    <div key={s.step} className="flex items-center justify-between rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-2">
+                      <div className="text-sm font-semibold text-fg">{s.step}</div>
                       <Badge variant="neutral">{s.users}</Badge>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="text-sm text-slate-500">No funnel data yet.</div>
+                <div className="text-sm text-muted">No funnel data yet.</div>
               )}
             </CardContent>
           </Card>
@@ -707,7 +707,7 @@ export const OpsPage: React.FC = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <FlaskConical size={18} className="text-slate-500" /> Today Experiment Summary
+                <FlaskConical size={18} className="text-muted" /> Today Experiment Summary
               </CardTitle>
               <Badge variant="neutral">{experimentsToday?.range ?? '1d'}</Badge>
             </CardHeader>
@@ -719,27 +719,27 @@ export const OpsPage: React.FC = () => {
                   const forkRate = best?.kpis?.blueprint_fork?.rate ?? best?.conversion_rate ?? 0;
                   const sampleOk = (best?.assigned ?? 0) >= 50;
                   return (
-                    <div key={exp.key} className="rounded-xl border border-slate-200 bg-white px-3 py-3">
+                    <div key={exp.key} className="rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">
                       <div className="flex items-center justify-between gap-3">
-                        <div className="text-sm font-bold text-slate-800 truncate">{exp.key}</div>
+                        <div className="text-sm font-bold text-fg truncate">{exp.key}</div>
                         <div className="flex items-center gap-2">
                           <Badge variant={sampleOk ? 'neutral' : 'warning'}>{sampleOk ? 'ok' : 'low n'}</Badge>
                           <Badge variant="neutral">{exp.status}</Badge>
                         </div>
                       </div>
                       {best ? (
-                        <div className="mt-1 text-xs text-slate-600">
+                        <div className="mt-1 text-xs text-muted">
                           winner <span className="font-mono font-semibold">{best.id}</span> · assigned {best.assigned} · fork{' '}
                           {(forkRate * 100).toFixed(1)}%
                         </div>
                       ) : (
-                        <div className="mt-1 text-xs text-slate-500">No variants.</div>
+                        <div className="mt-1 text-xs text-muted">No variants.</div>
                       )}
                     </div>
                   );
                 })
               ) : (
-                <div className="text-sm text-slate-500">No experiments found.</div>
+                <div className="text-sm text-muted">No experiments found.</div>
               )}
             </CardContent>
           </Card>
@@ -747,7 +747,7 @@ export const OpsPage: React.FC = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <FlaskConical size={18} className="text-slate-500" /> Hero Feed v1 (KPI + guardrails)
+                <FlaskConical size={18} className="text-muted" /> Hero Feed v1 (KPI + guardrails)
               </CardTitle>
               <Badge variant="neutral">{heroFeedSummary?.range ?? range}</Badge>
             </CardHeader>
@@ -776,14 +776,14 @@ export const OpsPage: React.FC = () => {
                       const quest = k.quest_claimed?.rate ?? 0;
                       const vfail = k.video_load_fail?.rate ?? 0;
                       return (
-                        <div key={vid} className="rounded-xl border border-slate-200 bg-white px-3 py-3">
+                        <div key={vid} className="rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">
                           <div className="flex items-center justify-between gap-3">
-                            <div className="text-sm font-bold text-slate-800">
+                            <div className="text-sm font-bold text-fg">
                               <span className="font-mono">{vid}</span>
                             </div>
                             <Badge variant={v.assigned < 50 ? 'warning' : 'neutral'}>assigned {v.assigned}</Badge>
                           </div>
-                          <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-slate-600">
+                          <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted">
                             <div>clip_view_3s {(clip3 * 100).toFixed(1)}%</div>
                             <div>beat_this_click {(beat * 100).toFixed(1)}%</div>
                             <div>match_done {(done * 100).toFixed(1)}%</div>
@@ -797,7 +797,7 @@ export const OpsPage: React.FC = () => {
                   </div>
                 </>
               ) : (
-                <div className="text-sm text-slate-500">No summary yet.</div>
+                <div className="text-sm text-muted">No summary yet.</div>
               )}
             </CardContent>
           </Card>
@@ -805,16 +805,16 @@ export const OpsPage: React.FC = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <FlaskConical size={18} className="text-slate-500" /> Experiments
+                <FlaskConical size={18} className="text-muted" /> Experiments
               </CardTitle>
               <Badge variant="neutral">{experiments?.range ?? range}</Badge>
             </CardHeader>
             <CardContent className="space-y-4">
               {experiments?.experiments?.length ? (
                 experiments.experiments.map((exp) => (
-                  <div key={exp.key} className="rounded-xl border border-slate-200 bg-white px-3 py-3">
+                  <div key={exp.key} className="rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">
                     <div className="flex items-center justify-between">
-                      <div className="text-sm font-bold text-slate-800">{exp.key}</div>
+                      <div className="text-sm font-bold text-fg">{exp.key}</div>
                       <Badge variant="neutral">{exp.status}</Badge>
                     </div>
                     <div className="mt-2 space-y-1">
@@ -833,8 +833,8 @@ export const OpsPage: React.FC = () => {
                           const rankedDoneRate = v.kpis?.ranked_done?.rate ?? 0;
 
                           return (
-                            <div key={v.id} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-                              <div className="flex items-center justify-between text-xs text-slate-700">
+                            <div key={v.id} className="rounded-xl border border-border/10 bg-surface-1/25 px-3 py-2">
+                              <div className="flex items-center justify-between text-xs text-fg/80">
                                 <span className="font-mono font-semibold">{v.id}</span>
                                 <span className="flex items-center gap-2">
                                   {idx === 0 ? <Badge variant="brand">winner</Badge> : null}
@@ -844,7 +844,7 @@ export const OpsPage: React.FC = () => {
                                   </span>
                                 </span>
                               </div>
-                              <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-slate-600">
+                              <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted">
                                 <div>share_open {(shareOpenRate * 100).toFixed(1)}%</div>
                                 <div>start_click {(startClickRate * 100).toFixed(1)}%</div>
                                 <div>guest_start {(guestStartRate * 100).toFixed(1)}%</div>
@@ -862,7 +862,7 @@ export const OpsPage: React.FC = () => {
                   </div>
                 ))
               ) : (
-                <div className="text-sm text-slate-500">No experiments found.</div>
+                <div className="text-sm text-muted">No experiments found.</div>
               )}
             </CardContent>
           </Card>
@@ -870,14 +870,14 @@ export const OpsPage: React.FC = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <FlaskConical size={18} className="text-slate-500" /> Shorts Variants
+                <FlaskConical size={18} className="text-muted" /> Shorts Variants
               </CardTitle>
               <div className="flex items-center gap-2">
                 <Badge variant="neutral">{shortsVariants?.range ?? range}</Badge>
                 <select
                   value={shortsChannel}
                   onChange={(e) => setShortsChannel(e.target.value)}
-                  className="h-8 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700"
+                  className="h-10 rounded-2xl border border-border/12 bg-surface-2/55 px-3 text-xs font-semibold text-fg"
                 >
                   {availableShortsChannels.map((c) => (
                     <option key={c} value={c}>
@@ -889,23 +889,23 @@ export const OpsPage: React.FC = () => {
             </CardHeader>
             <CardContent className="space-y-4">
               {shortsVariants?.tables?.length ? (
-                <div className="rounded-xl border border-slate-200 bg-white px-3 py-3">
+                <div className="rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-bold text-slate-800">All</div>
-                    <div className="text-xs text-slate-500">
+                    <div className="text-sm font-bold text-fg">All</div>
+                    <div className="text-xs text-muted">
                       {shortsVariants.start_date} → {shortsVariants.end_date}
                     </div>
                   </div>
-                  <div className="mt-1 text-[11px] text-slate-500">
+                  <div className="mt-1 text-[11px] text-muted">
                     Primary KPI: ranked_done / share_open
                   </div>
                   <div className="mt-2 space-y-3">
                     {shortsVariants.tables.map((tbl) => (
                       <div key={`all_${tbl.key}`} className="overflow-x-auto">
-                        <div className="mb-1 text-[11px] font-semibold text-slate-600">{tbl.key}</div>
+                        <div className="mb-1 text-[11px] font-semibold text-muted">{tbl.key}</div>
                         <table className="w-full text-xs">
                           <thead>
-                            <tr className="text-left text-slate-500">
+                            <tr className="text-left text-muted">
                               <th className="py-1 pr-3">variant</th>
                               <th className="py-1 pr-3">n</th>
                               <th className="py-1 pr-3">kpi%</th>
@@ -917,7 +917,7 @@ export const OpsPage: React.FC = () => {
                           </thead>
                           <tbody>
                             {tbl.variants.map((v) => (
-                              <tr key={v.id} className="border-t border-slate-100 text-slate-700">
+                              <tr key={v.id} className="border-t border-border/10 text-fg/80">
                                 <td className="py-1 pr-3 font-mono font-semibold">{v.id}</td>
                                 <td className="py-1 pr-3">{v.n}</td>
                                 <td className="py-1 pr-3 font-semibold">{(v.primary_kpi_rate * 100).toFixed(1)}%</td>
@@ -937,26 +937,26 @@ export const OpsPage: React.FC = () => {
 
               {shortsVariants?.groups?.length ? (
                 shortsVariants.groups.map((g) => (
-                  <div key={g.utm_source} className="rounded-xl border border-slate-200 bg-white px-3 py-3">
+                  <div key={g.utm_source} className="rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2">
-                        <div className="text-sm font-bold text-slate-800">{g.utm_source}</div>
+                        <div className="text-sm font-bold text-fg">{g.utm_source}</div>
                         <Badge variant="neutral">{g.n_share_open} share_open</Badge>
                       </div>
-                      <div className="text-xs text-slate-500">
+                      <div className="text-xs text-muted">
                         {shortsVariants?.start_date} → {shortsVariants?.end_date}
                       </div>
                     </div>
-                    <div className="mt-1 text-[11px] text-slate-500">
+                    <div className="mt-1 text-[11px] text-muted">
                       Primary KPI: ranked_done / share_open
                     </div>
                     <div className="mt-2 space-y-3">
                       {g.tables.map((tbl) => (
                         <div key={`${g.utm_source}_${tbl.key}`} className="overflow-x-auto">
-                          <div className="mb-1 text-[11px] font-semibold text-slate-600">{tbl.key}</div>
+                          <div className="mb-1 text-[11px] font-semibold text-muted">{tbl.key}</div>
                           <table className="w-full text-xs">
                             <thead>
-                              <tr className="text-left text-slate-500">
+                              <tr className="text-left text-muted">
                                 <th className="py-1 pr-3">variant</th>
                                 <th className="py-1 pr-3">n</th>
                                 <th className="py-1 pr-3">kpi%</th>
@@ -968,7 +968,7 @@ export const OpsPage: React.FC = () => {
                             </thead>
                             <tbody>
                               {tbl.variants.map((v) => (
-                                <tr key={v.id} className="border-t border-slate-100 text-slate-700">
+                                <tr key={v.id} className="border-t border-border/10 text-fg/80">
                                   <td className="py-1 pr-3 font-mono font-semibold">{v.id}</td>
                                   <td className="py-1 pr-3">{v.n}</td>
                                   <td className="py-1 pr-3 font-semibold">{(v.primary_kpi_rate * 100).toFixed(1)}%</td>
@@ -986,7 +986,7 @@ export const OpsPage: React.FC = () => {
                   </div>
                 ))
               ) : !shortsVariants?.tables?.length ? (
-                <div className="text-sm text-slate-500">No shorts variant data yet.</div>
+                <div className="text-sm text-muted">No shorts variant data yet.</div>
               ) : null}
             </CardContent>
           </Card>
@@ -997,46 +997,46 @@ export const OpsPage: React.FC = () => {
               <Badge variant={preflight?.available ? 'success' : 'warning'}>{preflight?.available ? 'available' : 'missing'}</Badge>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="text-xs text-slate-600">
+              <div className="text-xs text-muted">
                 Compare two packs and write a deterministic report under <span className="font-mono">ops/</span>.
               </div>
               {preflight?.artifact_url ? (
-                <a className="text-sm text-brand-700 font-bold hover:underline" href={preflight.artifact_url}>
+                <a className="text-sm text-brand-200 font-bold hover:underline" href={preflight.artifact_url}>
                   Open latest JSON
                 </a>
               ) : null}
               {preflight?.markdown_url ? (
-                <a className="text-sm text-brand-700 font-bold hover:underline" href={preflight.markdown_url}>
+                <a className="text-sm text-brand-200 font-bold hover:underline" href={preflight.markdown_url}>
                   Open latest MD
                 </a>
               ) : null}
               {preflightModes.length ? (
                 <div className="space-y-2">
                   {preflightModes.slice(0, 2).map((m: any) => (
-                    <div key={String(m.mode)} className="rounded-xl border border-slate-200 bg-white px-3 py-3">
+                    <div key={String(m.mode)} className="rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">
                       <div className="flex items-center justify-between">
-                        <div className="text-sm font-bold text-slate-800">mode: {String(m.mode)}</div>
+                        <div className="text-sm font-bold text-fg">mode: {String(m.mode)}</div>
                         <Badge variant="neutral">pool {Number(m.pool_size ?? 0)}</Badge>
                       </div>
-                      <div className="mt-2 text-xs text-slate-600 font-mono break-all">
+                      <div className="mt-2 text-xs text-muted font-mono break-all">
                         {String(m.baseline_pack_hash ?? '').slice(0, 10)}… → {String(m.candidate_pack_hash ?? '').slice(0, 10)}…
                       </div>
                       {Array.isArray(m.top_shifts) && m.top_shifts.length ? (
                         <div className="mt-2 space-y-1">
                           {m.top_shifts.slice(0, 3).map((row: any) => (
-                            <div key={String(row.blueprint_id)} className="text-xs text-slate-700">
+                            <div key={String(row.blueprint_id)} className="text-xs text-fg/80">
                               {String(row.blueprint_name ?? row.blueprint_id)} Δ {Number(row.delta ?? 0).toFixed(3)}
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <div className="mt-2 text-xs text-slate-500">No shifts (or no data).</div>
+                        <div className="mt-2 text-xs text-muted">No shifts (or no data).</div>
                       )}
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="text-sm text-slate-500">
+                <div className="text-sm text-muted">
                   No preflight report yet. Run <span className="font-mono">make ops-preflight</span>.
                 </div>
               )}

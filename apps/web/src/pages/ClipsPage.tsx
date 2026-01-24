@@ -767,15 +767,15 @@ export const ClipsPage: React.FC = () => {
 
   return (
     <>
-      <div className="relative h-[calc(100dvh-var(--nl-tabbar-h)-env(safe-area-inset-bottom))] bg-black overflow-hidden">
+      <div className="relative h-[calc(100dvh-var(--nl-tabbar-h)-env(safe-area-inset-bottom))] bg-bg overflow-hidden">
         <div className="absolute top-0 left-0 right-0 z-20 px-4 pt-[calc(env(safe-area-inset-top)+12px)] pb-3">
           <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="text-white font-extrabold tracking-tight">{title}</div>
-            <Badge variant="neutral" className="bg-white/10 text-white border-transparent">
+            <div className="text-fg font-extrabold tracking-tight drop-shadow">{title}</div>
+            <Badge variant="neutral" className="bg-surface-1/35 text-fg border-border/10">
               {mode}
             </Badge>
-            <Badge variant="neutral" className="bg-white/10 text-white border-transparent">
+            <Badge variant="neutral" className="bg-surface-1/35 text-fg border-border/10">
               {sort}
             </Badge>
           </div>
@@ -784,7 +784,7 @@ export const ClipsPage: React.FC = () => {
               type="button"
               size="icon"
               variant="secondary"
-              className="bg-white/10 text-white border-white/20 hover:bg-white/15 rounded-full"
+              className="bg-surface-1/35 text-fg border-border/12 hover:bg-surface-1/45 rounded-full"
               onClick={() => {
                 const next = !soundEnabled;
                 setSoundEnabled(next);
@@ -811,7 +811,7 @@ export const ClipsPage: React.FC = () => {
             <Button
               size="sm"
               variant={mode === '1v1' ? 'secondary' : 'outline'}
-              className={mode === '1v1' ? 'bg-white/10 text-white border-white/20' : 'bg-transparent text-white border-white/20'}
+              className={mode === '1v1' ? 'bg-surface-1/35 border-border/12 text-fg' : 'bg-transparent border-border/12 text-fg/85'}
               onClick={() => setMode('1v1')}
               type="button"
             >
@@ -820,7 +820,7 @@ export const ClipsPage: React.FC = () => {
             <Button
               size="sm"
               variant={mode === 'team' ? 'secondary' : 'outline'}
-              className={mode === 'team' ? 'bg-white/10 text-white border-white/20' : 'bg-transparent text-white border-white/20'}
+              className={mode === 'team' ? 'bg-surface-1/35 border-border/12 text-fg' : 'bg-transparent border-border/12 text-fg/85'}
               onClick={() => setMode('team')}
               type="button"
             >
@@ -829,7 +829,7 @@ export const ClipsPage: React.FC = () => {
             <Button
               size="sm"
               variant={sort === 'trending' ? 'secondary' : 'outline'}
-              className={sort === 'trending' ? 'bg-white/10 text-white border-white/20' : 'bg-transparent text-white border-white/20'}
+              className={sort === 'trending' ? 'bg-surface-1/35 border-border/12 text-fg' : 'bg-transparent border-border/12 text-fg/85'}
               onClick={() => setSort('trending')}
               type="button"
             >
@@ -838,7 +838,7 @@ export const ClipsPage: React.FC = () => {
             <Button
               size="sm"
               variant={sort === 'new' ? 'secondary' : 'outline'}
-              className={sort === 'new' ? 'bg-white/10 text-white border-white/20' : 'bg-transparent text-white border-white/20'}
+              className={sort === 'new' ? 'bg-surface-1/35 border-border/12 text-fg' : 'bg-transparent border-border/12 text-fg/85'}
               onClick={() => setSort('new')}
               type="button"
             >
@@ -851,7 +851,9 @@ export const ClipsPage: React.FC = () => {
             <button
               type="button"
               data-testid="today-quest-card"
-              className="mt-3 w-full max-w-md pointer-events-auto rounded-2xl bg-white/10 border border-white/15 backdrop-blur px-3 py-2 text-left"
+              className={`mt-3 w-full max-w-md pointer-events-auto rounded-3xl bg-surface-1/45 border border-border/12 backdrop-blur-xl shadow-glass px-3 py-2 text-left ${
+                questCard.claimableCount > 0 ? 'shadow-glow-brand border-brand-500/25' : ''
+              }`}
               onClick={() => {
                 tapJuice();
                 setQuestsOpen(true);
@@ -871,24 +873,27 @@ export const ClipsPage: React.FC = () => {
               }}
             >
               <div className="flex items-center justify-between gap-3">
-                <div className="text-[11px] font-black tracking-widest text-white/80 uppercase">
+                <div className="text-[11px] font-black tracking-widest text-fg/80 uppercase">
                   {lang === 'ko' ? '오늘의 퀘스트' : "Today's Quests"}
                 </div>
-                <div className="text-[11px] font-mono text-white/70">
+                <div className="text-[11px] font-mono text-fg/70">
                   {questCard.completedCount}/{questCard.daily.length}
                   {questCard.claimableCount > 0 ? (
-                    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-white/15 border border-white/15 text-white font-black">
+                    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-brand-500/15 border border-brand-500/20 text-fg font-black">
                       CLAIM
                     </span>
                   ) : null}
                 </div>
               </div>
-              <div className="mt-1 text-sm text-white font-extrabold truncate">{questCard.primary.quest.title}</div>
+              <div className="mt-1 text-sm text-fg font-extrabold truncate">{questCard.primary.quest.title}</div>
               <div className="mt-1 flex items-center gap-2">
-                <div className="flex-1 h-1.5 rounded-full bg-white/20 overflow-hidden">
-                  <div className="h-full bg-white/90 transition-all duration-700" style={{ width: `${questCard.pct * 100}%` }} />
+                <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-brand-500 to-accent-500 transition-all duration-700"
+                    style={{ width: `${questCard.pct * 100}%` }}
+                  />
                 </div>
-                <div className="text-[11px] font-mono text-white/70">
+                <div className="text-[11px] font-mono text-fg/70">
                   {questCard.prog}/{questCard.goal}
                 </div>
               </div>
@@ -898,11 +903,11 @@ export const ClipsPage: React.FC = () => {
 
         {ftueOpen ? (
           <div className="absolute left-4 right-4 z-30 pointer-events-none" style={{ top: `calc(env(safe-area-inset-top) + 64px)` }}>
-            <div className="pointer-events-auto max-w-md bg-black/60 border border-white/10 rounded-2xl p-3 backdrop-blur">
-              <div className="text-white text-sm font-extrabold tracking-tight">
+            <div className="pointer-events-auto max-w-md bg-surface-1/55 border border-border/12 rounded-3xl p-3 backdrop-blur-xl shadow-glass">
+              <div className="text-fg text-sm font-extrabold tracking-tight">
                 {lang === 'ko' ? '2분 루프' : '60s Loop'}
               </div>
-              <div className="text-white/80 text-xs mt-1">
+              <div className="text-fg/80 text-xs mt-1">
                 {lang === 'ko'
                   ? '클립 보기 → Beat This → 내 Reply가 원본에 추가됩니다.'
                   : 'Watch → Beat This → Your reply appears on the original.'}
@@ -910,7 +915,7 @@ export const ClipsPage: React.FC = () => {
               <div className="mt-2 flex justify-end">
                 <button
                   type="button"
-                  className="text-xs font-bold px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white"
+                  className="text-xs font-bold px-3 py-2 rounded-2xl bg-surface-2/40 hover:bg-surface-2/60 text-fg border border-border/10"
                   onClick={() => {
                     try {
                       localStorage.setItem(FTUE_KEY, '1');
@@ -929,7 +934,7 @@ export const ClipsPage: React.FC = () => {
 
         <div ref={containerRef} className="h-full overflow-y-scroll snap-y snap-mandatory">
           {clips.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-white/70">
+            <div className="h-full flex items-center justify-center text-muted">
               {isFetching ? 'Loading…' : 'No clips yet.'}
             </div>
           ) : (
@@ -946,7 +951,7 @@ export const ClipsPage: React.FC = () => {
                 <div
                   key={`${item.replay_id}:${idx}`}
                   data-clip-index={idx}
-                  className="snap-start h-full relative flex items-center justify-center bg-black"
+                  className="snap-start h-full relative flex items-center justify-center bg-bg"
                 >
                   <div
                     ref={(el) => {
@@ -1045,31 +1050,31 @@ export const ClipsPage: React.FC = () => {
                         <div className="flex flex-col gap-2">
                           <div
                             data-testid="clip-hud-outcome"
-                            className={`nl-pop-in text-white font-black tracking-tight leading-none text-xl px-3 py-2 rounded-2xl border border-white/15 backdrop-blur ${
+                            className={`nl-pop-in text-fg font-black tracking-tight leading-none text-xl px-3 py-2 rounded-2xl border backdrop-blur ${
                               activeHud.outcome === 'win'
-                                ? 'bg-green-600/60'
+                                ? 'bg-success-500/22 border-success-500/25'
                                 : activeHud.outcome === 'loss'
-                                ? 'bg-red-600/60'
-                                : 'bg-slate-600/60'
+                                ? 'bg-danger-500/22 border-danger-500/25'
+                                : 'bg-surface-1/45 border-border/12'
                             }`}
                           >
                             {activeHud.outcome === 'win' ? 'WIN' : activeHud.outcome === 'loss' ? 'LOSE' : 'DRAW'}
                           </div>
 
                           {activeHud.winnerHpPct != null ? (
-                            <div className="w-[168px] bg-black/45 border border-white/10 rounded-2xl p-2 backdrop-blur">
-                              <div className="flex items-center justify-between text-[10px] text-white/80 font-bold">
+                            <div className="w-[168px] bg-surface-1/45 border border-border/12 rounded-2xl p-2 backdrop-blur">
+                              <div className="flex items-center justify-between text-[10px] text-fg/80 font-bold">
                                 <span>{lang === 'ko' ? '남은 HP' : 'HP left'}</span>
                                 <span className="font-mono">{Math.round(activeHud.winnerHpPct * 100)}%</span>
                               </div>
-                              <div className="mt-1 h-2 rounded-full bg-white/15 overflow-hidden">
+                              <div className="mt-1 h-2 rounded-full bg-white/10 overflow-hidden">
                                 <div
                                   className={`h-full ${
                                     activeHud.outcome === 'win'
-                                      ? 'bg-green-300'
+                                      ? 'bg-success-500'
                                       : activeHud.outcome === 'loss'
-                                      ? 'bg-red-300'
-                                      : 'bg-slate-200'
+                                      ? 'bg-danger-500'
+                                      : 'bg-fg/60'
                                   }`}
                                   style={{ width: `${Math.round(activeHud.winnerHpPct * 100)}%` }}
                                 />
@@ -1079,17 +1084,17 @@ export const ClipsPage: React.FC = () => {
 
                           <div className="flex flex-wrap gap-1">
                             {activeHud.hasKill ? (
-                              <span className="text-[10px] font-black px-2 py-1 rounded-full bg-white/10 text-white border border-white/10">
+                              <span className="text-[10px] font-black px-2 py-1 rounded-full bg-surface-1/45 text-fg border border-border/10">
                                 KILL
                               </span>
                             ) : null}
                             {activeHud.hasCrit ? (
-                              <span className="text-[10px] font-black px-2 py-1 rounded-full bg-white/10 text-white border border-white/10">
+                              <span className="text-[10px] font-black px-2 py-1 rounded-full bg-surface-1/45 text-fg border border-border/10">
                                 CRIT
                               </span>
                             ) : null}
                             {activeHud.hasSynergy ? (
-                              <span className="text-[10px] font-black px-2 py-1 rounded-full bg-white/10 text-white border border-white/10">
+                              <span className="text-[10px] font-black px-2 py-1 rounded-full bg-surface-1/45 text-fg border border-border/10">
                                 SYNERGY
                               </span>
                             ) : null}
@@ -1140,15 +1145,15 @@ export const ClipsPage: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => navigate(`/profile/${encodeURIComponent(item.author.user_id)}?mode=${encodeURIComponent(item.mode)}`)}
-                          className="pointer-events-auto text-white font-bold hover:underline"
+                          className="pointer-events-auto text-fg font-bold hover:underline drop-shadow"
                         >
                           {item.author.display_name}
                         </button>
-                        <Badge variant="neutral" className="bg-white/10 text-white border-transparent">
+                        <Badge variant="neutral" className="bg-surface-1/40 text-fg border-border/10">
                           {item.mode}
                         </Badge>
                       </div>
-	                      <div className="text-white text-lg font-extrabold leading-tight">
+	                      <div className="text-fg text-lg font-extrabold leading-tight drop-shadow">
 	                        {item.blueprint_name ?? 'Untitled Build'}
 	                      </div>
                         <div className="flex items-center gap-2">
@@ -1157,12 +1162,12 @@ export const ClipsPage: React.FC = () => {
                             <Badge
                               data-testid="hero-badge"
                               variant="neutral"
-                              className="bg-white/10 text-white border-transparent text-[10px]"
+                              className="bg-brand-500/15 text-fg border-brand-500/25 text-[10px]"
                             >
                               HERO
                             </Badge>
                           ) : item.featured ? (
-                            <Badge variant="neutral" className="bg-white/10 text-white border-transparent text-[10px]">
+                            <Badge variant="neutral" className="bg-surface-1/40 text-fg border-border/10 text-[10px]">
                               Featured
                             </Badge>
                           ) : null}
@@ -1172,18 +1177,18 @@ export const ClipsPage: React.FC = () => {
 	                          <Badge
 	                            key={tag}
                             variant="neutral"
-                            className="bg-white/10 text-white border-transparent text-[10px]"
+                            className="bg-surface-1/35 text-fg border-border/10 text-[10px]"
                           >
                             {tag}
                           </Badge>
                         ))}
                       </div>
                       {item.best_clip_status !== 'ready' ? (
-                        <div className="text-xs text-white/70">
+                        <div className="text-xs text-fg/70">
                           {item.best_clip_status === 'rendering' ? 'Rendering best clip…' : 'Best clip not ready yet.'}
                         </div>
                       ) : null}
-                      <div className="text-[11px] text-white/60 font-mono">
+                      <div className="text-[11px] text-fg/60 font-mono drop-shadow">
                         views {item.stats.views} · shares {item.stats.shares} · forks {item.stats.forks}
                       </div>
                       <div className="pt-2 space-y-2 pointer-events-auto">
@@ -1205,7 +1210,7 @@ export const ClipsPage: React.FC = () => {
                           type="button"
                         size="lg"
                         variant="secondary"
-	                        className="w-full rounded-2xl bg-white/10 text-white border-white/20 hover:bg-white/15"
+	                        className="w-full rounded-2xl bg-surface-1/40 text-fg border-border/12 hover:bg-surface-1/50"
 	                        onClick={() => {
 	                          tapJuice();
                           apiFetch('/api/events/track', {
@@ -1241,9 +1246,9 @@ export const ClipsPage: React.FC = () => {
                         }}
                         aria-label="Like clip"
                       >
-                        <Heart size={18} className={liked ? 'text-white' : ''} />
+                        <Heart size={18} className={liked ? 'text-black' : ''} />
                       </Button>
-                      <div className="text-white/80 text-[11px] font-bold">{likes}</div>
+                      <div className="text-fg/80 text-[11px] font-bold drop-shadow">{likes}</div>
 
                       <Button
                         type="button"
@@ -1259,7 +1264,7 @@ export const ClipsPage: React.FC = () => {
                       >
                         <MessageCircle size={18} />
                       </Button>
-                      <div className="text-white/80 text-[11px] font-bold">Replies</div>
+                      <div className="text-fg/80 text-[11px] font-bold drop-shadow">Replies</div>
 
                       <Button
                         type="button"
@@ -1274,13 +1279,13 @@ export const ClipsPage: React.FC = () => {
                       >
                         <Share2 size={18} />
                       </Button>
-                      <div className="text-white/80 text-[11px] font-bold">{item.stats.shares}</div>
+                      <div className="text-fg/80 text-[11px] font-bold drop-shadow">{item.stats.shares}</div>
                     </div>
                   </div>
 
                   {idx === clips.length - 2 && hasNextPage ? (
                     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10">
-                      <Badge variant="neutral" className="bg-white/10 text-white border-transparent">
+                      <Badge variant="neutral" className="bg-surface-1/45 text-fg border-border/10">
                         Loading more…
                       </Badge>
                     </div>
@@ -1291,7 +1296,7 @@ export const ClipsPage: React.FC = () => {
           )}
         </div>
 
-        <div className="absolute bottom-4 left-4 z-20 pointer-events-none flex items-center gap-2 text-white/60 text-[11px]">
+        <div className="absolute bottom-4 left-4 z-20 pointer-events-none flex items-center gap-2 text-fg/60 text-[11px] drop-shadow">
           <Sparkles size={14} />
           <span>{lang === 'ko' ? '스크롤 또는 ↑/↓ 로 이동' : 'Scroll or use ↑/↓ to navigate'}</span>
         </div>
@@ -1309,26 +1314,29 @@ export const ClipsPage: React.FC = () => {
             const pct = Math.max(0, Math.min(1, prog / goal));
             const claimed = Boolean(a.claimed_at);
             return (
-              <div key={a.assignment_id} className="rounded-2xl border border-slate-200 bg-slate-50/60 p-3">
+              <div key={a.assignment_id} className="rounded-3xl border border-border/12 bg-surface-2/40 p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="font-extrabold text-slate-900 truncate">{a.quest.title}</div>
-                    <div className="text-xs text-slate-600 mt-0.5 line-clamp-2">{a.quest.description}</div>
+                    <div className="font-extrabold text-fg truncate">{a.quest.title}</div>
+                    <div className="text-xs text-muted mt-0.5 line-clamp-2">{a.quest.description}</div>
                   </div>
-                  <div className="shrink-0 text-[11px] font-mono text-slate-600">
+                  <div className="shrink-0 text-[11px] font-mono text-fg/70">
                     {prog}/{goal}
                   </div>
                 </div>
-                <div className="mt-2 h-2 w-full rounded-full bg-slate-200 overflow-hidden">
-                  <div className="h-full bg-brand-600 transition-all duration-700" style={{ width: `${pct * 100}%` }} />
+                <div className="mt-2 h-2 w-full rounded-full bg-white/10 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-brand-500 to-accent-500 transition-all duration-700"
+                    style={{ width: `${pct * 100}%` }}
+                  />
                 </div>
                 <div className="mt-2 flex items-center justify-between gap-3">
                   {claimed ? (
-                    <span className="text-xs font-bold text-slate-500">Claimed</span>
+                    <span className="text-xs font-bold text-muted">Claimed</span>
                   ) : a.claimable ? (
-                    <span className="text-xs font-bold text-green-600">Ready!</span>
+                    <span className="text-xs font-bold text-success-500">Ready!</span>
                   ) : (
-                    <span className="text-xs font-bold text-slate-500">In progress</span>
+                    <span className="text-xs font-bold text-muted">In progress</span>
                   )}
                   <Button
                     type="button"
@@ -1352,7 +1360,7 @@ export const ClipsPage: React.FC = () => {
       <BottomSheet open={quickRemixOpen} title="Quick Remix" onClose={() => setQuickRemixOpen(false)}>
         {activeClip ? (
           <div className="space-y-3">
-            <div className="text-sm text-slate-600">
+            <div className="text-sm text-muted">
               Pick a preset to apply minimal tweaks to the original build, then start a “Beat This” challenge.
             </div>
             <div className="grid grid-cols-1 gap-2">
@@ -1413,15 +1421,15 @@ export const ClipsPage: React.FC = () => {
               </Button>
             </div>
             <div className="max-h-[70vh] overflow-auto">
-              {repliesFetching ? <div className="text-sm text-slate-500 py-3">Loading…</div> : null}
-              {repliesError ? <div className="text-sm text-red-600 py-3 break-words">{String(repliesError)}</div> : null}
+              {repliesFetching ? <div className="text-sm text-muted py-3">Loading…</div> : null}
+              {repliesError ? <div className="text-sm text-danger-500 py-3 break-words">{String(repliesError)}</div> : null}
               {repliesData?.items?.length ? (
                 <div className="space-y-2">
                   {repliesData.items.map((r, i) => (
                     <button
                       key={r.reply_replay_id}
                       type="button"
-                      className="w-full text-left bg-white border border-slate-200 rounded-2xl overflow-hidden hover:bg-slate-50 transition-colors"
+                      className="w-full text-left bg-surface-2/35 border border-border/12 rounded-3xl overflow-hidden hover:bg-surface-2/45 transition-colors shadow-glass"
                       onClick={() => {
                         setRepliesOpen(false);
                         navigate(`/replay/${encodeURIComponent(r.match_id)}?reply_to=${encodeURIComponent(activeClip.replay_id)}`);
@@ -1431,41 +1439,41 @@ export const ClipsPage: React.FC = () => {
                         <img
                           src={`/s/clip/${encodeURIComponent(r.reply_replay_id)}/thumb.png`}
                           alt="Reply thumbnail"
-                          className="w-20 h-14 rounded-xl border border-slate-200 object-cover bg-slate-100"
+                          className="w-20 h-14 rounded-2xl border border-border/12 object-cover bg-surface-3/40"
                         />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             {repliesTab === 'top' ? (
-                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-brand-600 text-white">
+                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-brand-500 text-black">
                                 #{i + 1}
                               </span>
                             ) : null}
                             <span
                               className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                                 r.outcome === 'win'
-                                  ? 'bg-green-100 text-green-700'
+                                  ? 'bg-success-500/15 text-success-500 border border-success-500/25'
                                   : r.outcome === 'loss'
-                                  ? 'bg-red-100 text-red-700'
-                                  : 'bg-slate-100 text-slate-600'
+                                  ? 'bg-danger-500/15 text-danger-500 border border-danger-500/25'
+                                  : 'bg-surface-2/70 text-fg/75 border border-border/10'
                               }`}
                             >
                               {r.outcome.toUpperCase()}
                             </span>
-                            <div className="text-sm font-semibold text-slate-800 truncate">{r.challenger_display_name ?? 'Guest'}</div>
+                            <div className="text-sm font-semibold text-fg truncate">{r.challenger_display_name ?? 'Guest'}</div>
                           </div>
-                          <div className="text-xs text-slate-600 mt-1 truncate">{r.blueprint_name ?? 'Starter Build'}</div>
-                          <div className="text-[11px] text-slate-500 mt-2">
+                          <div className="text-xs text-muted mt-1 truncate">{r.blueprint_name ?? 'Starter Build'}</div>
+                          <div className="text-[11px] text-muted mt-2">
                             👍 {r.reactions?.up ?? 0} · 😂 {r.reactions?.lol ?? 0} · 🤯 {r.reactions?.wow ?? 0} · shares{' '}
                             {r.shares ?? 0}
                           </div>
-                          <div className="text-[11px] text-slate-500">fork depth {r.lineage?.fork_depth ?? 0}</div>
+                          <div className="text-[11px] text-muted">fork depth {r.lineage?.fork_depth ?? 0}</div>
                         </div>
                       </div>
                     </button>
                   ))}
                 </div>
               ) : !repliesFetching && !repliesError ? (
-                <div className="text-sm text-slate-500 py-3">No replies yet.</div>
+                <div className="text-sm text-muted py-3">No replies yet.</div>
               ) : null}
             </div>
           </>

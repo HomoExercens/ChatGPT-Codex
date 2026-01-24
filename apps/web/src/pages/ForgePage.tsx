@@ -260,15 +260,15 @@ export const ForgePage: React.FC = () => {
   const getRarityColor = (r: Rarity) => {
     switch (r) {
       case RARITY.COMMON:
-        return 'bg-slate-200 text-slate-700';
+        return 'bg-surface-3/40 text-fg/80 border border-border/10';
       case RARITY.RARE:
-        return 'bg-blue-100 text-blue-700';
+        return 'bg-brand-500/12 text-brand-100 border border-brand-500/22';
       case RARITY.EPIC:
-        return 'bg-purple-100 text-purple-700';
+        return 'bg-accent-500/12 text-accent-200 border border-accent-500/22';
       case RARITY.LEGENDARY:
-        return 'bg-amber-100 text-amber-700';
+        return 'bg-warning-500/12 text-warning-500 border border-warning-500/22';
       default:
-        return 'bg-slate-100';
+        return 'bg-surface-2/40 text-fg/70 border border-border/10';
     }
   };
 
@@ -545,20 +545,22 @@ export const ForgePage: React.FC = () => {
               />
 
               {decodeBuildCodeMutation.isPending ? (
-                <div className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">Decoding…</div>
+                <div className="text-xs text-muted bg-surface-2/40 border border-border/12 rounded-2xl px-3 py-2">
+                  Decoding…
+                </div>
               ) : decodeBuildCodeMutation.data?.ok ? (
-                <div className="text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 space-y-2">
+                <div className="text-xs bg-surface-2/40 border border-border/12 rounded-2xl px-3 py-2 space-y-2">
                   <div className="flex flex-wrap gap-2 items-center">
                     <Badge variant="info">{decodeBuildCodeMutation.data.mode ?? '—'}</Badge>
-                    <span className="text-slate-700">
+                    <span className="text-fg/80">
                       ruleset: <span className="font-mono">{decodeBuildCodeMutation.data.ruleset_version ?? '—'}</span>
                     </span>
-                    <span className="text-slate-500">
+                    <span className="text-muted">
                       pack: <span className="font-mono">{decodeBuildCodeMutation.data.pack_hash ?? '—'}</span>
                     </span>
                   </div>
                   {Array.isArray(decodeBuildCodeMutation.data.blueprint_spec?.team) ? (
-                    <div className="text-slate-600">
+                    <div className="text-muted">
                       team:{' '}
                       <span className="font-mono">
                         {decodeBuildCodeMutation.data.blueprint_spec.team
@@ -569,23 +571,23 @@ export const ForgePage: React.FC = () => {
                   ) : null}
                   {(decodeBuildCodeMutation.data.warnings ?? []).length ? (
                     <div className="space-y-1">
-                      <div className="text-slate-500 font-semibold">Warnings</div>
+                      <div className="text-muted font-semibold">Warnings</div>
                       <ul className="list-disc pl-5">
                         {(decodeBuildCodeMutation.data.warnings ?? []).slice(0, 6).map((w, idx) => (
-                          <li key={`${w.type}-${idx}`} className="text-amber-800">
+                          <li key={`${w.type}-${idx}`} className="text-warning-500">
                             <span className="font-mono">{w.type}</span>: {w.message}
                           </li>
                         ))}
                       </ul>
                     </div>
                   ) : (
-                    <div className="text-slate-500">No warnings.</div>
+                    <div className="text-muted">No warnings.</div>
                   )}
                 </div>
               ) : null}
 
               {importError ? (
-                <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">{importError}</div>
+                <div className="text-xs text-danger-500 bg-danger-500/10 border border-danger-500/20 rounded-2xl px-3 py-2">{importError}</div>
               ) : null}
               <div className="flex gap-2 justify-end">
                 <Button
@@ -625,7 +627,7 @@ export const ForgePage: React.FC = () => {
         <CardHeader className="py-3 space-y-3">
           <div className="flex gap-2">
             <select
-              className="px-3 py-2 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-brand-200 outline-none text-sm"
+              className="h-12 px-3 rounded-2xl border border-border/12 bg-surface-2/70 text-fg outline-none focus:ring-2 focus:ring-ring/35 text-sm"
               value={newMode}
               onChange={(e) => setNewMode(e.target.value as Mode)}
               aria-label="New blueprint mode"
@@ -637,7 +639,7 @@ export const ForgePage: React.FC = () => {
               + New
             </Button>
             <select
-              className="flex-1 px-3 py-2 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-brand-200 outline-none text-sm"
+              className="flex-1 h-12 px-3 rounded-2xl border border-border/12 bg-surface-2/70 text-fg outline-none focus:ring-2 focus:ring-ring/35 text-sm"
               value={blueprint?.id ?? ''}
               onChange={(e) => setBlueprintId(e.target.value)}
               aria-label="Select blueprint"
@@ -650,11 +652,11 @@ export const ForgePage: React.FC = () => {
             </select>
           </div>
 
-          <Input placeholder={t.searchCreatures} className="h-9 text-sm" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input placeholder={t.searchCreatures} className="text-sm" value={search} onChange={(e) => setSearch(e.target.value)} />
 
           <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
             {['Tank', 'DPS', 'Support'].map((role) => (
-              <Badge key={role} variant="neutral" className="cursor-pointer hover:bg-slate-200 whitespace-nowrap">
+              <Badge key={role} variant="neutral" className="cursor-pointer hover:bg-surface-2/90 whitespace-nowrap">
                 {role}
               </Badge>
             ))}
@@ -665,13 +667,15 @@ export const ForgePage: React.FC = () => {
             <div
               key={creature.id}
               onClick={() => selectedSlot !== null && handleSelectCreature(creature)}
-              className={`flex items-center gap-3 p-2 rounded-xl border cursor-pointer hover:bg-slate-50 transition-all ${
-                selectedSlot !== null ? 'ring-2 ring-brand-200 hover:ring-brand-400' : 'border-slate-100'
+              className={`flex items-center gap-3 p-2 rounded-2xl border cursor-pointer transition-all ${
+                selectedSlot !== null
+                  ? 'bg-surface-2/35 border-border/12 hover:bg-surface-2/45 ring-2 ring-brand-500/20'
+                  : 'bg-surface-2/25 border-border/10 hover:bg-surface-2/35'
               }`}
             >
-              <img src={creature.imageUrl} className="w-10 h-10 rounded-lg bg-slate-200 object-cover" alt={creature.name} />
+              <img src={creature.imageUrl} className="w-10 h-10 rounded-xl bg-surface-3/40 object-cover" alt={creature.name} />
               <div className="flex-1 min-w-0">
-                <div className="font-bold text-sm text-slate-800 truncate">{creature.name}</div>
+                <div className="font-bold text-sm text-fg truncate">{creature.name}</div>
                 <div className="flex gap-1 mt-0.5">
                   <span className={`text-[10px] px-1 rounded ${getRarityColor(creature.rarity)}`}>{creature.role}</span>
                 </div>
@@ -682,9 +686,9 @@ export const ForgePage: React.FC = () => {
       </Card>
 
       <div className="lg:col-span-6 flex flex-col gap-4">
-        <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center gap-2">
+        <div className="bg-surface-1/55 backdrop-blur-xl p-2 rounded-3xl border border-border/12 shadow-glass flex justify-between items-center gap-2">
           <div className="flex items-center gap-2 px-2 min-w-0">
-            <span className="text-sm font-bold text-slate-600">{t.targetBlueprint}:</span>
+            <span className="text-sm font-bold text-muted">{t.targetBlueprint}:</span>
             <input
               className="text-sm font-medium bg-transparent outline-none border-b border-transparent focus:border-brand-300 min-w-0"
               value={draftName}
@@ -734,61 +738,61 @@ export const ForgePage: React.FC = () => {
           </div>
         </div>
 
-        {updateMutation.error ? <div className="text-xs text-red-600">{String(updateMutation.error)}</div> : null}
+        {updateMutation.error ? <div className="text-xs text-danger-500">{String(updateMutation.error)}</div> : null}
         {submitCooldownSec !== null ? (
-          <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+          <div className="text-xs text-warning-500 bg-warning-500/10 border border-warning-500/20 rounded-2xl px-3 py-2">
             Submit locked — try again in <span className="font-mono">{submitCooldownSec}s</span>.
           </div>
         ) : submitMutation.error ? (
-          <div className="text-xs text-red-600">{String(submitMutation.error)}</div>
+          <div className="text-xs text-danger-500">{String(submitMutation.error)}</div>
         ) : null}
         {validateMutation.data ? (
-          <div className="text-xs text-green-700 bg-green-50 border border-green-100 rounded-xl px-3 py-2">
+          <div className="text-xs text-success-500 bg-success-500/10 border border-success-500/20 rounded-2xl px-3 py-2">
             OK — spec_hash: <span className="font-mono">{validateMutation.data.spec_hash}</span>
           </div>
         ) : null}
 
         {draftLog ? (
-          <div className="bg-white border border-slate-200 rounded-xl p-3">
+          <div className="bg-surface-2/30 border border-border/12 rounded-3xl p-3">
             <button
               type="button"
               className="w-full flex items-center justify-between"
               onClick={() => setShowDraftSummary((v) => !v)}
             >
               <div className="flex items-center gap-2">
-                <Info size={16} className="text-slate-500" />
-                <span className="text-sm font-bold text-slate-800">Draft Summary</span>
+                <Info size={16} className="text-muted" />
+                <span className="text-sm font-bold text-fg">Draft Summary</span>
                 {draftNote === 'policy_inference' ? (
                   <Badge variant="info">POLICY</Badge>
                 ) : (
                   <Badge variant="warning">FALLBACK</Badge>
                 )}
               </div>
-              <span className="text-xs text-slate-500">{showDraftSummary ? 'Hide' : 'Show'}</span>
+              <span className="text-xs text-muted">{showDraftSummary ? 'Hide' : 'Show'}</span>
             </button>
             {showDraftSummary ? (
               <div className="mt-3 space-y-3">
-                <div className="text-[10px] text-slate-500 font-mono">
+                <div className="text-[10px] text-muted font-mono">
                   env: {draftEnv ?? '—'} | seed: {draftSeed ?? '—'}
                 </div>
                 {draftNote !== 'policy_inference' && draftError ? (
-                  <div className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-2 py-1">
+                  <div className="text-xs text-warning-500 bg-warning-500/10 border border-warning-500/20 rounded-xl px-2 py-1">
                     {draftError}
                   </div>
                 ) : null}
                 {draftLog.map((r) => (
-                  <div key={r.round} className="bg-slate-50 border border-slate-100 rounded-lg p-2">
+                  <div key={r.round} className="bg-surface-2/30 border border-border/10 rounded-2xl p-2">
                     <div className="flex justify-between items-center">
-                      <div className="text-xs font-bold text-slate-700">
+                      <div className="text-xs font-bold text-fg/80">
                         R{r.round} • L{r.start_level} • G{r.start_gold}
                       </div>
                       {r.end_gold != null && r.end_level != null ? (
-                        <div className="text-[10px] text-slate-500 font-mono">
+                        <div className="text-[10px] text-muted font-mono">
                           → L{r.end_level} • G{r.end_gold}
                         </div>
                       ) : null}
                     </div>
-                    <div className="mt-1 text-[10px] text-slate-500 font-mono break-words">
+                    <div className="mt-1 text-[10px] text-muted font-mono break-words">
                       offer.c: {(r.start_shop?.creatures ?? []).join(', ') || '—'}
                       <br />
                       offer.i: {(r.start_shop?.items ?? []).join(', ') || '—'}
@@ -796,15 +800,15 @@ export const ForgePage: React.FC = () => {
                     <div className="mt-2 space-y-1">
                       {(r.actions ?? []).length > 0 ? (
                         (r.actions ?? []).slice(0, 8).map((a, idx) => (
-                          <div key={idx} className="text-[10px] text-slate-700 font-mono">
+                          <div key={idx} className="text-[10px] text-fg/80 font-mono">
                             {formatDraftAction(a)}
                           </div>
                         ))
                       ) : (
-                        <div className="text-[10px] text-slate-400">No actions</div>
+                        <div className="text-[10px] text-muted/70">No actions</div>
                       )}
                       {(r.actions ?? []).length > 8 ? (
-                        <div className="text-[10px] text-slate-400">…</div>
+                        <div className="text-[10px] text-muted/70">…</div>
                       ) : null}
                     </div>
                   </div>
@@ -814,10 +818,13 @@ export const ForgePage: React.FC = () => {
           </div>
         ) : null}
 
-        <div className="flex-1 bg-slate-100 rounded-3xl border-2 border-slate-200 border-dashed relative overflow-hidden flex items-center justify-center">
+        <div className="flex-1 bg-surface-1/25 rounded-3xl border border-border/12 border-dashed relative overflow-hidden flex items-center justify-center backdrop-blur">
           <div
             className="absolute inset-0 opacity-10"
-            style={{ backgroundImage: 'radial-gradient(#94a3b8 1px, transparent 1px)', backgroundSize: '24px 24px' }}
+            style={{
+              backgroundImage: 'radial-gradient(rgba(255,255,255,0.18) 1px, transparent 1px)',
+              backgroundSize: '24px 24px',
+            }}
           ></div>
 
           <div className="relative z-10 grid grid-cols-3 gap-8">
@@ -829,11 +836,15 @@ export const ForgePage: React.FC = () => {
                   onClick={() => !disabled && setSelectedSlot(index)}
                   type="button"
                   className={`
-                      w-24 h-24 md:w-32 md:h-32 rounded-3xl flex flex-col items-center justify-center transition-all cursor-pointer shadow-lg
+                      w-24 h-24 md:w-32 md:h-32 rounded-3xl flex flex-col items-center justify-center transition-all cursor-pointer shadow-glass
                       ${index === 1 || index === 3 ? 'mt-12' : ''}
-                      ${slots[index] ? 'bg-white border-2 border-brand-500' : 'bg-slate-200/50 border-2 border-slate-300 border-dashed hover:bg-slate-200'}
-                      ${selectedSlot === index ? 'ring-4 ring-brand-400 ring-offset-2 scale-105' : ''}
-                      ${disabled ? 'opacity-40 cursor-not-allowed hover:bg-slate-200/50' : ''}
+                      ${
+                        slots[index]
+                          ? 'bg-surface-2/45 border border-brand-500/40'
+                          : 'bg-surface-2/15 border border-border/12 border-dashed hover:bg-surface-2/25'
+                      }
+                      ${selectedSlot === index ? 'ring-4 ring-ring/35 ring-offset-2 ring-offset-bg scale-105' : ''}
+                      ${disabled ? 'opacity-40 cursor-not-allowed hover:bg-surface-2/15' : ''}
                     `}
                   aria-label={`Formation slot ${index + 1}`}
                   disabled={disabled}
@@ -841,12 +852,12 @@ export const ForgePage: React.FC = () => {
                   {slots[index] ? (
                     <>
                       <img src={slots[index]!.imageUrl} className="w-12 h-12 md:w-16 md:h-16 rounded-xl mb-1 object-cover" alt="" />
-                      <span className="text-[10px] font-bold text-slate-700 bg-slate-100 px-2 rounded-full max-w-[90%] truncate">
+                      <span className="text-[10px] font-bold text-fg/80 bg-surface-1/55 border border-border/10 px-2 rounded-full max-w-[90%] truncate">
                         {slots[index]!.name}
                       </span>
                     </>
                   ) : (
-                    <UserPlus className="text-slate-400" />
+                    <UserPlus className="text-muted/70" />
                   )}
                 </button>
               );
@@ -864,34 +875,37 @@ export const ForgePage: React.FC = () => {
             synergy.map((s) => (
               <div key={s.tag}>
                 <div className="flex justify-between items-center mb-1">
-                  <span className="font-bold text-sm text-slate-700 flex items-center gap-2">
-                    <Shield size={14} className="text-blue-500" /> {s.tag}
+                  <span className="font-bold text-sm text-fg/85 flex items-center gap-2">
+                    <Shield size={14} className="text-brand-200" /> {s.tag}
                   </span>
-                  <span className="text-xs text-slate-500">{s.n}/{activeSlots}</span>
+                  <span className="text-xs text-muted">{s.n}/{activeSlots}</span>
                 </div>
-                <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-blue-500" style={{ width: `${Math.min(100, (s.n / activeSlots) * 100)}%` }}></div>
+                <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-brand-500 to-accent-500"
+                    style={{ width: `${Math.min(100, (s.n / activeSlots) * 100)}%` }}
+                  ></div>
                 </div>
               </div>
             ))
           ) : (
-            <div className="text-center text-slate-400 py-6">
+            <div className="text-center text-muted py-6">
               <Info size={32} className="mx-auto mb-2 opacity-50" />
               <p className="text-sm">{t.noSynergy}</p>
             </div>
           )}
 
-          <div className="pt-4 border-t border-slate-100 space-y-3">
-            <h4 className="text-xs font-bold text-slate-400 uppercase">{t.inventory}</h4>
+          <div className="pt-4 border-t border-border/10 space-y-3">
+            <h4 className="text-xs font-bold text-muted uppercase">{t.inventory}</h4>
             {selectedSlot === null || selectedSlot >= activeSlots ? (
-              <div className="text-xs text-slate-500">Select a slot to edit equipment.</div>
+              <div className="text-xs text-muted">Select a slot to edit equipment.</div>
             ) : (
               <div className="space-y-3">
                 {(['weapon', 'armor', 'utility'] as const).map((slot) => (
                   <div key={slot}>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">{slot}</label>
+                    <label className="block text-[10px] font-bold text-muted uppercase mb-1">{slot}</label>
                     <select
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-brand-200 outline-none text-sm"
+                      className="w-full h-12 px-3 rounded-2xl border border-border/12 bg-surface-2/70 text-fg outline-none focus:ring-2 focus:ring-ring/35 text-sm"
                       value={(selectedItems?.[slot] ?? '') as string}
                       onChange={(e) => setItem(selectedSlot, slot, e.target.value ? e.target.value : null)}
                     >
@@ -908,8 +922,8 @@ export const ForgePage: React.FC = () => {
             )}
           </div>
 
-          <div className="pt-4 border-t border-slate-100 space-y-3">
-            <h4 className="text-xs font-bold text-slate-400 uppercase">Lineage</h4>
+          <div className="pt-4 border-t border-border/10 space-y-3">
+            <h4 className="text-xs font-bold text-muted uppercase">Lineage</h4>
             <div className="flex flex-wrap gap-2">
               {blueprint?.forked_from_id ? (
                 <Button
@@ -935,11 +949,11 @@ export const ForgePage: React.FC = () => {
                 {lineageChain.map((n, idx) => {
                   const isSelf = idx === lineageChain.length - 1;
                   return (
-                  <div key={n.blueprint_id} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                  <div key={n.blueprint_id} className="rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-2">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="text-sm font-bold text-slate-800 truncate">{n.name}</div>
-                        <div className="text-[11px] text-slate-500 truncate">
+                        <div className="text-sm font-bold text-fg truncate">{n.name}</div>
+                        <div className="text-[11px] text-muted truncate">
                           by {n.display_name} · <span className="font-mono">{n.blueprint_id}</span>
                         </div>
                       </div>
@@ -947,7 +961,7 @@ export const ForgePage: React.FC = () => {
                         {isSelf ? 'You' : n.status}
                       </Badge>
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
+                    <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted">
                       {typeof n.fork_count === 'number' ? <span>remixes: {n.fork_count}</span> : null}
                       {typeof n.children_count === 'number' ? <span>direct forks: {n.children_count}</span> : null}
                       {isSelf && n.origin_code_hash ? (
@@ -970,25 +984,25 @@ export const ForgePage: React.FC = () => {
                 })}
               </div>
             ) : (
-              <div className="text-xs text-slate-500">Lineage not available.</div>
+              <div className="text-xs text-muted">Lineage not available.</div>
             )}
 
             <div className="pt-2 space-y-2">
-              <h5 className="text-[11px] font-bold text-slate-400 uppercase">Top Forks</h5>
+              <h5 className="text-[11px] font-bold text-muted uppercase">Top Forks</h5>
               {lineageChildren.length ? (
                 <div className="space-y-2">
                   {lineageChildren.slice(0, 6).map((n) => (
-                    <div key={n.blueprint_id} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                    <div key={n.blueprint_id} className="rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-2">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="text-sm font-bold text-slate-800 truncate">{n.name}</div>
-                          <div className="text-[11px] text-slate-500 truncate">
+                          <div className="text-sm font-bold text-fg truncate">{n.name}</div>
+                          <div className="text-[11px] text-muted truncate">
                             by {n.display_name} · <span className="font-mono">{n.blueprint_id}</span>
                           </div>
                         </div>
                         <Badge variant={n.status === 'submitted' ? 'success' : 'neutral'}>{n.status}</Badge>
                       </div>
-                      <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
+                      <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted">
                         {typeof n.fork_count === 'number' ? <span>remixes: {n.fork_count}</span> : null}
                         {typeof n.children_count === 'number' ? <span>direct forks: {n.children_count}</span> : null}
                       </div>
@@ -1007,7 +1021,7 @@ export const ForgePage: React.FC = () => {
                   ))}
                 </div>
               ) : (
-                <div className="text-xs text-slate-500">No forks yet.</div>
+                <div className="text-xs text-muted">No forks yet.</div>
               )}
             </div>
           </div>
@@ -1016,27 +1030,27 @@ export const ForgePage: React.FC = () => {
 
       <BottomSheet open={autoTuneOpen} title="Auto Tune" onClose={() => setAutoTuneOpen(false)}>
         {!blueprint?.id ? (
-          <div className="text-sm text-slate-600">No blueprint selected.</div>
+          <div className="text-sm text-muted">No blueprint selected.</div>
         ) : autoTuneMutation.isPending ? (
-          <div className="text-sm text-slate-600">Tuning… (deterministic sims)</div>
+          <div className="text-sm text-muted">Tuning… (deterministic sims)</div>
         ) : autoTuneResult?.blueprint?.id ? (
           <div className="space-y-3">
-            <div className="text-sm text-slate-800 font-extrabold">{autoTuneResult.blueprint.name}</div>
-            <div className="text-xs text-slate-500 font-mono break-all">new: {autoTuneResult.blueprint.id}</div>
-            <div className="text-xs text-slate-500">
+            <div className="text-sm text-fg font-extrabold">{autoTuneResult.blueprint.name}</div>
+            <div className="text-xs text-muted font-mono break-all">new: {autoTuneResult.blueprint.id}</div>
+            <div className="text-xs text-muted">
               wins {autoTuneResult.meta?.wins ?? 0} · draws {autoTuneResult.meta?.draws ?? 0} · losses {autoTuneResult.meta?.losses ?? 0}
             </div>
-            <div className="text-sm font-bold text-slate-800">Before → After</div>
+            <div className="text-sm font-bold text-fg">Before → After</div>
             {(autoTuneResult.meta?.changes ?? []).length ? (
               <div className="space-y-1">
                 {(autoTuneResult.meta?.changes ?? []).slice(0, 12).map((c, idx) => (
-                  <div key={idx} className="text-[12px] text-slate-700 font-mono break-words">
+                  <div key={idx} className="text-[12px] text-fg/80 font-mono break-words">
                     slot {Number(c.slot_index ?? 0) + 1} {c.item_slot}: {String(c.from ?? '—')} → {String(c.to ?? '—')}
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="text-sm text-slate-600">No item changes.</div>
+              <div className="text-sm text-muted">No item changes.</div>
             )}
             <div className="flex gap-2 pt-2">
               <Button
@@ -1062,7 +1076,7 @@ export const ForgePage: React.FC = () => {
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="text-sm text-slate-600">Pick a preset. Auto Tune creates a new forked blueprint.</div>
+            <div className="text-sm text-muted">Pick a preset. Auto Tune creates a new forked blueprint.</div>
             <div className="grid grid-cols-1 gap-2">
 	              <Button
 	                onClick={() => {

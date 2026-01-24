@@ -131,19 +131,19 @@ export const FeedbackPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-50">
+    <div className="min-h-screen flex items-center justify-center p-4 bg-bg text-fg">
       <Card className="w-full max-w-xl">
         <CardHeader>
           <CardTitle>Report an issue</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="text-sm text-slate-600">
+          <div className="text-sm text-muted">
             Context: <span className="font-mono">{context}</span>
           </div>
 
-          {loading ? <div className="text-sm text-slate-500">Loading…</div> : null}
+          {loading ? <div className="text-sm text-muted">Loading…</div> : null}
 
-          <div className="text-xs text-slate-500">
+          <div className="text-xs text-muted/70">
             Target: {target ? <span className="font-mono">{`${target.target_type}:${target.target_id}`}</span> : '—'}
           </div>
 
@@ -160,9 +160,9 @@ export const FeedbackPage: React.FC = () => {
             placeholder="email / discord handle"
           />
 
-          {error ? <div className="text-xs text-red-600 break-words">{error}</div> : null}
+          {error ? <div className="text-xs text-danger-500 break-words">{error}</div> : null}
           {submittedId ? (
-            <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">
+            <div className="text-xs text-success-500 bg-success-500/10 border border-success-500/20 rounded-2xl px-3 py-2">
               Submitted. report_id: <span className="font-mono">{submittedId}</span>
             </div>
           ) : null}
@@ -180,4 +180,3 @@ export const FeedbackPage: React.FC = () => {
     </div>
   );
 };
-

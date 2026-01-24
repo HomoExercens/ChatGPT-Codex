@@ -78,23 +78,23 @@ const RequireSession: React.FC<{ children: React.ReactElement }> = ({ children }
   if (status === 'ready') return children;
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-950">
-      <div className="w-full max-w-md bg-white/5 border border-white/10 rounded-2xl p-5 text-white">
+    <div className="min-h-screen flex items-center justify-center p-4 bg-bg text-fg">
+      <div className="w-full max-w-md bg-surface-1/70 border border-border/12 backdrop-blur rounded-3xl p-5 shadow-glass">
         <div className="font-extrabold tracking-tight text-lg">Starting NeuroLeague…</div>
-        <div className="text-sm text-white/70 mt-2">Preparing your session.</div>
+        <div className="text-sm text-muted mt-2">Preparing your session.</div>
         {error ? (
-          <div className="mt-3 text-xs text-red-200 bg-red-950/40 border border-red-900/40 rounded-xl px-3 py-2">
+          <div className="mt-3 text-xs text-danger-500 bg-danger-500/10 border border-danger-500/20 rounded-2xl px-3 py-2">
             <div className="font-mono break-words">{error}</div>
             <div className="mt-3 flex gap-2">
               <button
                 type="button"
-                className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-semibold"
+                className="px-3 py-2 rounded-2xl bg-surface-2/40 hover:bg-surface-2/60 text-fg text-sm font-semibold border border-border/10"
                 onClick={() => window.location.reload()}
               >
                 Retry
               </button>
               <a
-                className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-semibold"
+                className="px-3 py-2 rounded-2xl bg-surface-2/40 hover:bg-surface-2/60 text-fg text-sm font-semibold border border-border/10"
                 href="/login"
               >
                 Login

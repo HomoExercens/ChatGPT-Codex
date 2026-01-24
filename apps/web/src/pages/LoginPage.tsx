@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { Button, Card, CardContent, CardHeader, CardTitle, Input, Slider } from '../components/ui';
+import { Button, Card, CardContent, CardHeader, CardTitle, Input, Slider, Switch } from '../components/ui';
 import { TRANSLATIONS } from '../lib/translations';
 import { apiFetch } from '../lib/api';
 import { useAuthStore } from '../stores/auth';
@@ -66,14 +66,14 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-50">
+    <div className="min-h-screen flex items-center justify-center p-4 bg-bg text-fg">
       <div className="w-full max-w-3xl grid grid-cols-1 md:grid-cols-12 gap-6">
         <Card className="md:col-span-7">
           <CardHeader>
             <CardTitle>{t.loginTitle}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-sm text-slate-600">{t.loginSubtitle}</p>
+            <p className="text-sm text-muted">{t.loginSubtitle}</p>
             <div className="flex gap-2">
               <Button variant="secondary" onClick={() => setLanguage(lang === 'ko' ? 'en' : 'ko')}>
                 {lang === 'ko' ? 'ENG' : '한글'}
@@ -88,7 +88,7 @@ export const LoginPage: React.FC = () => {
                 placeholder="demo"
                 autoComplete="username"
               />
-              {error ? <div className="text-xs text-red-600">{error}</div> : null}
+              {error ? <div className="text-xs text-danger-500">{error}</div> : null}
             </div>
 
             <div className="flex flex-wrap gap-3 pt-2">
@@ -112,48 +112,28 @@ export const LoginPage: React.FC = () => {
           <CardContent className="space-y-4">
             <div>
               <div className="flex justify-between items-center mb-2">
-                <span className="text-xs font-bold text-slate-700">{t.fontScale}</span>
-                <span className="text-xs font-mono text-slate-500">{fontScale.toFixed(2)}x</span>
+                <span className="text-xs font-bold text-muted uppercase tracking-wider">{t.fontScale}</span>
+                <span className="text-xs font-mono text-muted/70">{fontScale.toFixed(2)}x</span>
               </div>
               <Slider min={0.9} max={1.3} step={0.05} value={fontScale} onChange={(e) => setFontScale(Number(e.target.value))} />
             </div>
 
             <div>
               <div className="flex justify-between items-center mb-2">
-                <span className="text-xs font-bold text-slate-700">{t.contrast}</span>
-                <span className="text-xs font-mono text-slate-500">{contrast.toFixed(2)}x</span>
+                <span className="text-xs font-bold text-muted uppercase tracking-wider">{t.contrast}</span>
+                <span className="text-xs font-mono text-muted/70">{contrast.toFixed(2)}x</span>
               </div>
               <Slider min={1} max={1.4} step={0.05} value={contrast} onChange={(e) => setContrast(Number(e.target.value))} />
             </div>
 
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-700">{t.reduceMotion}</span>
-              <button
-                type="button"
-                className={`w-12 h-7 rounded-full border transition-colors ${reduceMotion ? 'bg-brand-600 border-brand-600' : 'bg-slate-200 border-slate-300'}`}
-                role="switch"
-                aria-checked={reduceMotion}
-                onClick={() => setReduceMotion(!reduceMotion)}
-              >
-                <span
-                  className={`block w-5 h-5 bg-white rounded-full shadow transform transition-transform ${reduceMotion ? 'translate-x-5' : 'translate-x-1'}`}
-                />
-              </button>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-bold text-muted uppercase tracking-wider">{t.reduceMotion}</span>
+              <Switch label={t.reduceMotion} checked={reduceMotion} onCheckedChange={setReduceMotion} />
             </div>
 
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-700">{t.colorblind}</span>
-              <button
-                type="button"
-                className={`w-12 h-7 rounded-full border transition-colors ${colorblind ? 'bg-brand-600 border-brand-600' : 'bg-slate-200 border-slate-300'}`}
-                role="switch"
-                aria-checked={colorblind}
-                onClick={() => setColorblind(!colorblind)}
-              >
-                <span
-                  className={`block w-5 h-5 bg-white rounded-full shadow transform transition-transform ${colorblind ? 'translate-x-5' : 'translate-x-1'}`}
-                />
-              </button>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-bold text-muted uppercase tracking-wider">{t.colorblind}</span>
+              <Switch label={t.colorblind} checked={colorblind} onCheckedChange={setColorblind} />
             </div>
           </CardContent>
         </Card>

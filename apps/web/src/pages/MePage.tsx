@@ -80,40 +80,40 @@ export const MePage: React.FC = () => {
           <CardTitle>{me?.display_name ?? 'Me'}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {isFetching ? <div className="text-sm text-slate-500">Loading…</div> : null}
-          {error ? <div className="text-sm text-red-600 break-words">{String(error)}</div> : null}
+          {isFetching ? <div className="text-sm text-muted">Loading…</div> : null}
+          {error ? <div className="text-sm text-danger-500 break-words">{String(error)}</div> : null}
 
-          <div className="text-sm text-slate-700">
+          <div className="text-sm text-fg/80">
             <div className="flex justify-between gap-4">
-              <span className="text-slate-500">User</span>
+              <span className="text-muted">User</span>
               <span className="font-mono text-xs break-all">{me?.user_id ?? '—'}</span>
             </div>
             <div className="flex justify-between gap-4 mt-1">
-              <span className="text-slate-500">Type</span>
+              <span className="text-muted">Type</span>
               <span className="font-semibold">{me?.is_guest ? 'Guest' : 'Account'}</span>
             </div>
           </div>
 
-          <div className="p-3 rounded-xl border border-slate-200 bg-white">
+          <div className="p-4 rounded-3xl border border-border/12 bg-surface-2/40">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-xs text-slate-500">Level</div>
-                <div className="text-2xl font-extrabold text-slate-900">{progress.level}</div>
+                <div className="text-xs text-muted">Level</div>
+                <div className="text-2xl font-extrabold text-fg">{progress.level}</div>
               </div>
               <div className="text-right">
-                <div className="text-xs text-slate-500">Streak</div>
-                <div className="text-lg font-bold text-slate-900">{progress.streak_days}d</div>
+                <div className="text-xs text-muted">Streak</div>
+                <div className="text-lg font-bold text-fg">{progress.streak_days}d</div>
                 <div className="mt-1 flex items-center justify-end gap-2">
                   <Badge variant={progress.streak_freeze_tokens > 0 ? 'brand' : 'neutral'}>
                     Shield {progress.streak_freeze_tokens}/1
                   </Badge>
                 </div>
-                <div className="text-[11px] text-slate-500">{progress.last_active_day ? `Last: ${progress.last_active_day}` : '—'}</div>
-                <div className="text-[11px] text-slate-500 mt-1">Shield auto-protects 1 missed day per week (earned from quest claims).</div>
+                <div className="text-[11px] text-muted">{progress.last_active_day ? `Last: ${progress.last_active_day}` : '—'}</div>
+                <div className="text-[11px] text-muted mt-1">Shield auto-protects 1 missed day per week (earned from quest claims).</div>
               </div>
             </div>
             <div className="mt-3">
-              <div className="flex justify-between text-[11px] text-slate-500 mb-1">
+              <div className="flex justify-between text-[11px] text-muted mb-1">
                 <span>XP</span>
                 <span>
                   {xpInLevel}/100 · next in {xpToNext}
@@ -144,7 +144,7 @@ export const MePage: React.FC = () => {
             >
               Logout
             </Button>
-            <div className="text-[11px] text-slate-500 mt-2">Logging out clears your local token and starts a new guest session next time.</div>
+            <div className="text-[11px] text-muted mt-2">Logging out clears your local token and starts a new guest session next time.</div>
           </div>
         </CardContent>
       </Card>
@@ -154,19 +154,24 @@ export const MePage: React.FC = () => {
           <CardTitle>Badge Cabinet</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="text-sm text-slate-600">Badges are permanent. Earn them via quests and Beat This wins.</div>
+          <div className="text-sm text-muted">Badges are permanent. Earn them via quests and Beat This wins.</div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {BADGE_DEFS.map((b) => {
               const have = unlocked.has(b.id);
               const cur = Number(progress[b.progressKey] ?? 0);
               const pct = b.goal > 0 ? Math.max(0, Math.min(1, cur / b.goal)) : 0;
               return (
-                <div key={b.id} className={`p-3 rounded-xl border ${have ? 'border-brand-200 bg-brand-50' : 'border-slate-200 bg-white'}`}>
+                <div
+                  key={b.id}
+                  className={`p-4 rounded-3xl border ${
+                    have ? 'border-brand-500/25 bg-brand-500/10 shadow-glow-brand' : 'border-border/12 bg-surface-2/35'
+                  }`}
+                >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="font-extrabold text-slate-900 truncate">{b.name}</div>
-                      <div className="text-xs text-slate-600">{b.desc}</div>
-                      <div className="text-[11px] text-slate-500 font-mono mt-1">{b.id}</div>
+                      <div className="font-extrabold text-fg truncate">{b.name}</div>
+                      <div className="text-xs text-muted">{b.desc}</div>
+                      <div className="text-[11px] text-muted font-mono mt-1">{b.id}</div>
                     </div>
                     <Badge variant={have ? 'success' : 'neutral'} className="shrink-0">
                       {have ? 'UNLOCKED' : `${Math.min(cur, b.goal)}/${b.goal}`}
@@ -187,7 +192,7 @@ export const MePage: React.FC = () => {
           <CardTitle>Account upgrade</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          <div className="text-sm text-slate-600">Optional: connect Discord in Settings to upgrade a guest to a real account.</div>
+          <div className="text-sm text-muted">Optional: connect Discord in Settings to upgrade a guest to a real account.</div>
           <Button variant="secondary" onClick={() => navigate('/settings')}>
             Open Settings
           </Button>

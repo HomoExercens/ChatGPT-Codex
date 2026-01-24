@@ -1,25 +1,83 @@
 :root {
-  --nl-brand-50: 239 246 255;
-  --nl-brand-100: 219 234 254;
-  --nl-brand-200: 191 219 254;
-  --nl-brand-300: 147 197 253;
-  --nl-brand-400: 96 165 250;
-  --nl-brand-500: 59 130 246;
-  --nl-brand-600: 37 99 235;
-  --nl-brand-700: 29 78 216;
-  --nl-brand-900: 30 58 138;
+  /* v2: Cinematic Minimal + Electric Accent (dark default) */
 
-  --nl-lab-50: 248 250 252;
-  --nl-lab-900: 15 23 42;
+  /* Semantic surfaces */
+  --nl-bg: 5 5 5; /* ~#050505 */
+  --nl-surface-1: 18 18 18; /* ~#121212 */
+  --nl-surface-2: 26 26 26; /* ~#1a1a1a */
+  --nl-surface-3: 34 34 34; /* ~#222222 */
 
+  /* Text */
+  --nl-fg: 237 237 237; /* ~#ededed */
+  --nl-fg-muted: 156 156 156; /* ~#9c9c9c */
+  --nl-fg-subtle: 120 120 120; /* ~#787878 */
+
+  /* Lines / focus */
+  --nl-border: 255 255 255;
+  --nl-ring: 0 240 255; /* electric cyan */
+
+  /* Brand (electric cyan scale) */
+  --nl-brand-50: 226 254 255;
+  --nl-brand-100: 186 252 255;
+  --nl-brand-200: 130 249 255;
+  --nl-brand-300: 80 246 255;
+  --nl-brand-400: 30 243 255;
+  --nl-brand-500: 0 240 255; /* #00f0ff */
+  --nl-brand-600: 0 204 218;
+  --nl-brand-700: 0 168 180;
+  --nl-brand-900: 0 92 104;
+
+  /* Accent (electric violet) — may be swapped by colorblind a11y setting */
   --nl-accent-200: 221 214 254;
   --nl-accent-500: 139 92 246;
   --nl-accent-700: 109 40 217;
 
+  /* Status */
+  --nl-success-500: 0 255 157;
+  --nl-warning-500: 245 158 11;
+  --nl-danger-500: 255 42 0;
+
+  /* Labs (non-critical) */
+  --nl-lab-50: 248 250 252;
+  --nl-lab-900: 15 23 42;
+
   --nl-font-scale: 1;
   --nl-contrast: 1;
 
+  /* Radii */
+  --nl-radius-sm: 12px;
+  --nl-radius-md: 18px;
+  --nl-radius-lg: 28px;
+  --nl-radius-full: 9999px;
+
+  /* Elevation */
+  --nl-shadow-glass: 0 10px 30px rgba(0, 0, 0, 0.55);
+  --nl-shadow-depth: 0 18px 60px rgba(0, 0, 0, 0.7);
+
+  /* Motion */
+  --nl-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --nl-ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --nl-dur-fast: 180ms;
+  --nl-dur: 240ms;
+  --nl-dur-slow: 420ms;
+
   --nl-tabbar-h: 72px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    /* Minimal light mode: keep accents, swap surfaces/text */
+    --nl-bg: 248 250 252; /* slate-50 */
+    --nl-surface-1: 255 255 255;
+    --nl-surface-2: 241 245 249; /* slate-100 */
+    --nl-surface-3: 226 232 240; /* slate-200 */
+
+    --nl-fg: 15 23 42; /* slate-900 */
+    --nl-fg-muted: 71 85 105; /* slate-600 */
+    --nl-fg-subtle: 100 116 139; /* slate-500 */
+
+    --nl-border: 15 23 42;
+  }
 }
 
 .pt-safe {
@@ -34,4 +92,3 @@
 .pr-safe {
   padding-right: env(safe-area-inset-right);
 }
-

@@ -24,23 +24,23 @@ export const InboxPage: React.FC = () => {
       <Card>
         <CardHeader>
           <CardTitle>
-            Inbox {unread > 0 ? <span className="text-slate-400 text-sm font-semibold">({unread} unread)</span> : null}
+            Inbox {unread > 0 ? <span className="text-muted text-sm font-semibold">({unread} unread)</span> : null}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {isFetching ? <div className="text-sm text-slate-500">Loading…</div> : null}
-          {error ? <div className="text-sm text-red-600 break-words">{String(error)}</div> : null}
+          {isFetching ? <div className="text-sm text-muted">Loading…</div> : null}
+          {error ? <div className="text-sm text-danger-500 break-words">{String(error)}</div> : null}
 
           {items.length ? (
-            <div className="divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden bg-white">
+            <div className="divide-y divide-border/10 border border-border/12 rounded-2xl overflow-hidden bg-surface-2/35">
               {items.map((n) => {
                 const isUnread = !n.read_at;
                 return (
                   <button
                     key={n.id}
                     type="button"
-                    className={`w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors ${
-                      isUnread ? 'bg-brand-50/40' : 'bg-white'
+                    className={`w-full text-left px-4 py-3 transition-colors hover:bg-surface-1/30 ${
+                      isUnread ? 'bg-brand-500/10' : 'bg-surface-1/10'
                     }`}
                     onClick={async () => {
                       try {
@@ -72,18 +72,18 @@ export const InboxPage: React.FC = () => {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="text-sm font-bold text-slate-900 truncate">{n.title ?? 'Notification'}</div>
-                        {n.body ? <div className="text-xs text-slate-600 mt-1 line-clamp-2">{n.body}</div> : null}
+                        <div className="text-sm font-bold text-fg truncate">{n.title ?? 'Notification'}</div>
+                        {n.body ? <div className="text-xs text-muted mt-1 line-clamp-2">{n.body}</div> : null}
                       </div>
-                      {isUnread ? <span className="mt-1 w-2 h-2 rounded-full bg-brand-600 shrink-0" /> : null}
+                      {isUnread ? <span className="mt-1 w-2 h-2 rounded-full bg-brand-400 shrink-0" /> : null}
                     </div>
-                    <div className="text-[11px] text-slate-400 mt-2 font-mono">{new Date(n.created_at).toLocaleString()}</div>
+                    <div className="text-[11px] text-muted/70 mt-2 font-mono">{new Date(n.created_at).toLocaleString()}</div>
                   </button>
                 );
               })}
             </div>
           ) : (
-            <div className="text-sm text-slate-500">No notifications yet.</div>
+            <div className="text-sm text-muted">No notifications yet.</div>
           )}
 
           <div className="pt-2 flex justify-end">
@@ -96,4 +96,3 @@ export const InboxPage: React.FC = () => {
     </div>
   );
 };
-
