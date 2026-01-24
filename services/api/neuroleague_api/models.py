@@ -42,6 +42,25 @@ class Wallet(Base):
     cosmetic_points: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
+class UserProgress(Base):
+    __tablename__ = "user_progress"
+
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    xp: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    level: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    streak_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_active_day: Mapped[date | None] = mapped_column(Date, nullable=True)
+    quests_claimed_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    perfect_wins: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    one_shot_wins: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    clutch_wins: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
 class Blueprint(Base):
     __tablename__ = "blueprints"
 

@@ -9,7 +9,7 @@ export type ExperimentAssignment = {
 
 export type ExperimentsAssignments = Record<string, ExperimentAssignment>;
 
-export const EXPERIMENT_KEYS = ['clip_len_v1', 'clips_feed_algo', 'share_cta_copy', 'quick_battle_default'] as const;
+export const EXPERIMENT_KEYS = ['clip_len_v1', 'clips_feed_algo', 'hero_feed_v1', 'share_cta_copy', 'quick_battle_default'] as const;
 
 export function useExperiments() {
   const keys = EXPERIMENT_KEYS.join(',');

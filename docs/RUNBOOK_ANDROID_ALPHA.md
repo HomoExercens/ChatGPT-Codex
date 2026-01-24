@@ -3,6 +3,7 @@
 Goal: ship an Android-first “app feel” wrapper using Trusted Web Activity (TWA) for a web origin that serves NeuroLeague.
 
 This repo already includes a deeper technical guide: `docs/RUNBOOK_ANDROID_DEEPLINKS.md`. This doc is the “alpha checklist” version.
+Also see: `docs/RUNBOOK_TWA_VERIFIED_ORIGIN.md` for the verified-origin / Digital Asset Links checklist.
 
 ## 0) Non-negotiables
 
@@ -106,4 +107,3 @@ Expected:
 
 - Quick Tunnel random URLs are not stable enough for reliable App Links verification.
 - Without a stable origin + `assetlinks.json`, Android will not “install → open exact share link” reliably.
-

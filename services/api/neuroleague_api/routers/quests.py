@@ -88,6 +88,13 @@ class ClaimQuestOut(BaseModel):
     reward_granted: bool
     cosmetic_points_awarded: int = 0
     cosmetic_points_balance: int | None = None
+    xp_awarded: int = 0
+    xp_total: int = 0
+    level: int = 1
+    level_up: bool = False
+    streak_days: int = 0
+    streak_extended: bool = False
+    badges_unlocked: list[str] = Field(default_factory=list)
 
 
 class OpsQuestUpsertIn(BaseModel):
@@ -300,6 +307,66 @@ def claim(
     a.claimed_at = now
     db.add(a)
 
+    reward = None
+    try:
+        from neuroleague_api.progression import apply_quest_claim_rewards
+
+        reward = apply_quest_claim_rewards(
+            db,
+            user_id=str(user_id),
+            cadence=str(q.cadence),
+            quest_key=str(q.key),
+            now=now,
+        )
+        if reward.streak_extended:
+            log_event(
+                db,
+                type="streak_extended",
+                user_id=str(user_id),
+                request=None,
+                payload={
+                    "streak_days": int(reward.streak_days),
+                    "cadence": str(q.cadence),
+                    "key": str(q.key),
+                    "assignment_id": str(a.id),
+                    "period_key": str(a.period_key),
+                },
+                now=now,
+            )
+        if reward.level_up:
+            log_event(
+                db,
+                type="level_up",
+                user_id=str(user_id),
+                request=None,
+                payload={
+                    "level": int(reward.level),
+                    "xp_total": int(reward.xp_total),
+                    "cadence": str(q.cadence),
+                    "key": str(q.key),
+                    "assignment_id": str(a.id),
+                    "period_key": str(a.period_key),
+                },
+                now=now,
+            )
+        for bid in reward.badges_unlocked:
+            log_event(
+                db,
+                type="badge_unlocked",
+                user_id=str(user_id),
+                request=None,
+                payload={
+                    "badge_id": str(bid),
+                    "cadence": str(q.cadence),
+                    "key": str(q.key),
+                    "assignment_id": str(a.id),
+                    "period_key": str(a.period_key),
+                },
+                now=now,
+            )
+    except Exception:  # noqa: BLE001
+        reward = None
+
     try:
         log_event(
             db,
@@ -348,6 +415,13 @@ def claim(
         reward_granted=granted,
         cosmetic_points_awarded=points_awarded,
         cosmetic_points_balance=int(wallet.cosmetic_points or 0),
+        xp_awarded=int(getattr(reward, "xp_awarded", 0) or 0),
+        xp_total=int(getattr(reward, "xp_total", 0) or 0),
+        level=int(getattr(reward, "level", 1) or 1),
+        level_up=bool(getattr(reward, "level_up", False) or False),
+        streak_days=int(getattr(reward, "streak_days", 0) or 0),
+        streak_extended=bool(getattr(reward, "streak_extended", False) or False),
+        badges_unlocked=list(getattr(reward, "badges_unlocked", []) or []),
     )
 
 

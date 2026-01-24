@@ -139,6 +139,18 @@ def run_once(*, days: int = 30, queue_type: str = "ranked") -> dict[str, object]
     except Exception:  # noqa: BLE001
         pass
 
+    # Daily hero clips auto-curation (best-effort; ops override can pin/exclude).
+    try:
+        with SessionLocal() as session:
+            from neuroleague_api.hero_clips import recompute_hero_clips
+            from neuroleague_api.locks import advisory_lock
+
+            with advisory_lock(session, name="scheduler_hero_clips_daily") as acquired:
+                if acquired:
+                    recompute_hero_clips(session, now=now, backend=backend)
+    except Exception:  # noqa: BLE001
+        pass
+
     # Discord daily loop (optional): ensure daily challenge + enqueue daily post + drain outbox.
     try:
         with SessionLocal() as session:

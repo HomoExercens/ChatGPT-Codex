@@ -18,7 +18,7 @@ import type {
 } from '../api/types';
 import { apiFetch } from '../lib/api';
 import { getExperimentVariant, useExperiments } from '../lib/experiments';
-import { tapJuice } from '../lib/juice';
+import { playSfx, tapJuice, vibrate } from '../lib/juice';
 import { toast } from '../lib/toast';
 import { TRANSLATIONS } from '../lib/translations';
 import { appendUtmParams } from '../lib/utm';
@@ -230,6 +230,11 @@ export const ClipsPage: React.FC = () => {
     const v = getExperimentVariant(experiments, 'clips_feed_algo', 'v2');
     return v === 'v3' ? 'v3' : 'v2';
   }, [experiments]);
+  const heroFeedVariant = useMemo(() => {
+    const v = getExperimentVariant(experiments, 'hero_feed_v1', 'hero_first');
+    return v === 'control' ? 'control' : 'hero_first';
+  }, [experiments]);
+  const heroEnabled = useMemo(() => heroEligible && heroFeedVariant === 'hero_first', [heroEligible, heroFeedVariant]);
 
   const [searchParams, setSearchParams] = useSearchParams();
   const initialMode = (searchParams.get('mode') as Mode | null) ?? '1v1';
@@ -251,14 +256,14 @@ export const ClipsPage: React.FC = () => {
     isFetchingNextPage,
     isFetching,
   } = useInfiniteQuery({
-    queryKey: ['clipsFeed', mode, sort, feedAlgo, heroEligible ? 'hero' : 'normal'],
+    queryKey: ['clipsFeed', mode, sort, feedAlgo, heroEnabled ? 'hero_first' : `no_hero:${heroFeedVariant}`],
     queryFn: ({ pageParam }) => {
       const qp = new URLSearchParams();
       qp.set('mode', mode);
       qp.set('sort', sort);
       qp.set('algo', feedAlgo);
       qp.set('limit', '12');
-      if (!pageParam && heroEligible) qp.set('hero', '1');
+      if (!pageParam && heroEnabled) qp.set('hero', '1');
       if (pageParam) qp.set('cursor', String(pageParam));
       return apiFetch<ClipFeedOut>(`/api/clips/feed?${qp.toString()}`);
     },
@@ -270,14 +275,14 @@ export const ClipsPage: React.FC = () => {
   const clips: ClipFeedItem[] = useMemo(() => (data?.pages ?? []).flatMap((p) => p.items ?? []), [data?.pages]);
 
   useEffect(() => {
-    if (!heroEligible) return;
+    if (!heroEnabled) return;
     if (!data?.pages?.length) return;
     try {
       localStorage.setItem(HERO_FEED_KEY, '1');
     } catch {
       // ignore
     }
-  }, [data?.pages?.length, heroEligible]);
+  }, [data?.pages?.length, heroEnabled]);
 
   const { data: me } = useQuery({
     queryKey: ['me'],
@@ -297,8 +302,9 @@ export const ClipsPage: React.FC = () => {
         method: 'POST',
         body: JSON.stringify({ assignment_id: assignment.assignment_id }),
       }),
-    onSuccess: async (_out, assignment) => {
+    onSuccess: async (out, assignment) => {
       await queryClient.invalidateQueries({ queryKey: ['questsToday'] });
+      await queryClient.invalidateQueries({ queryKey: ['meProfile'] });
       try {
         await apiFetch('/api/events/track', {
           method: 'POST',
@@ -317,7 +323,21 @@ export const ClipsPage: React.FC = () => {
       } catch {
         // best-effort
       }
-      toast.success(lang === 'ko' ? '보상 획득!' : 'Reward claimed!');
+      if (out?.level_up) {
+        playSfx('success');
+        vibrate([18, 40, 18]);
+      } else {
+        playSfx('click');
+        vibrate(18);
+      }
+      const xp = Number(out?.xp_awarded ?? 0);
+      const level = Number(out?.level ?? 1);
+      const streak = Number(out?.streak_days ?? 0);
+      toast.success(
+        lang === 'ko'
+          ? `보상 획득! +${xp} XP · Lv.${level} · 스트릭 ${streak}일`
+          : `Reward claimed! +${xp} XP · Lv.${level} · Streak ${streak}d`
+      );
     },
     onError: (e) => toast.error(lang === 'ko' ? '보상 수령 실패' : 'Claim failed', e instanceof Error ? e.message : String(e)),
   });
@@ -473,12 +493,12 @@ export const ClipsPage: React.FC = () => {
       body: JSON.stringify({
         type: 'play_open',
         source: 'play',
-        meta: { mode, sort, feed_algo: feedAlgo },
+        meta: { mode, sort, feed_algo: feedAlgo, hero_variant: heroFeedVariant },
       }),
     }).catch(() => {
       // best-effort
     });
-  }, [feedAlgo, mode, sort]);
+  }, [feedAlgo, heroFeedVariant, mode, sort]);
 
   useEffect(() => {
     if (!clips.length) return;

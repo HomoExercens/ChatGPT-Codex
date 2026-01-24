@@ -76,3 +76,7 @@ def test_daily_quest_claim_by_key(api_client, monkeypatch: pytest.MonkeyPatch) -
     assert claim.status_code == 200
     out = claim.json()
     assert out.get("ok") is True
+    assert int(out.get("xp_awarded") or 0) > 0
+    assert int(out.get("xp_total") or 0) >= int(out.get("xp_awarded") or 0)
+    assert int(out.get("level") or 0) >= 1
+    assert int(out.get("streak_days") or 0) >= 1

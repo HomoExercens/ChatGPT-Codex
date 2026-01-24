@@ -302,6 +302,13 @@ export type ClaimQuestOut = {
   reward_granted: boolean;
   cosmetic_points_awarded: number;
   cosmetic_points_balance?: number | null;
+  xp_awarded?: number;
+  xp_total?: number;
+  level?: number;
+  level_up?: boolean;
+  streak_days?: number;
+  streak_extended?: boolean;
+  badges_unlocked?: string[];
 };
 
 export type ClipEventResponse = {

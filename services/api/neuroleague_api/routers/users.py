@@ -23,6 +23,7 @@ from neuroleague_api.models import (
     Replay,
     User,
     UserCosmetic,
+    UserProgress,
 )
 from neuroleague_api.rate_limit import check_rate_limit_dual
 
@@ -87,6 +88,17 @@ class QuestHistoryOut(BaseModel):
     claimed_at: str | None = None
 
 
+class ProgressOut(BaseModel):
+    xp: int = 0
+    level: int = 1
+    streak_days: int = 0
+    last_active_day: str | None = None
+    quests_claimed_total: int = 0
+    perfect_wins: int = 0
+    one_shot_wins: int = 0
+    clutch_wins: int = 0
+
+
 class UserProfileOut(BaseModel):
     user: UserSummaryOut
     rating: RatingOut
@@ -98,6 +110,7 @@ class UserProfileOut(BaseModel):
     badges: list[BadgeOut] = []
     referrals: list[ReferralOut] = []
     quest_history: list[QuestHistoryOut] = []
+    progress: ProgressOut | None = None
 
 
 @router.get("/{user_id}/profile", response_model=UserProfileOut)
@@ -221,6 +234,22 @@ def profile(
         for (uc, c) in badges_rows
     ]
 
+    progress = db.get(UserProgress, user_id)
+    progress_out: ProgressOut = ProgressOut()
+    if progress is not None:
+        progress_out = ProgressOut(
+            xp=int(progress.xp or 0),
+            level=int(progress.level or 1),
+            streak_days=int(progress.streak_days or 0),
+            last_active_day=progress.last_active_day.isoformat()
+            if progress.last_active_day
+            else None,
+            quests_claimed_total=int(progress.quests_claimed_total or 0),
+            perfect_wins=int(progress.perfect_wins or 0),
+            one_shot_wins=int(progress.one_shot_wins or 0),
+            clutch_wins=int(progress.clutch_wins or 0),
+        )
+
     referrals_out: list[ReferralOut] = []
     if _viewer_user_id == user_id:
         referrals = db.scalars(
@@ -301,6 +330,7 @@ def profile(
         badges=badges_out,
         referrals=referrals_out,
         quest_history=quest_history,
+        progress=progress_out,
     )
 
 

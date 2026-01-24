@@ -89,6 +89,14 @@ DEFAULT_EXPERIMENTS: dict[str, dict[str, Any]] = {
             {"id": "watch_clips", "weight": 0.5, "config": {"default": "watch_clips"}},
         ],
     },
+    # First-session hero feed (FTUE). control = baseline feed, hero_first = prepend curated hero clips.
+    "hero_feed_v1": {
+        "status": "running",
+        "variants": [
+            {"id": "control", "weight": 0.5, "config": {"hero_first": False}},
+            {"id": "hero_first", "weight": 0.5, "config": {"hero_first": True}},
+        ],
+    },
 }
 
 BANDIT_VERSION = "bandit_v1"

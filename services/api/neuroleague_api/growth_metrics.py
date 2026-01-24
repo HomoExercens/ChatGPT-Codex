@@ -656,6 +656,10 @@ def load_experiment_stats(
             "ranked_queue",
             "ranked_done",
             "app_open_deeplink",
+            # Mobile FTUE / play.
+            "play_open",
+            "clip_view_3s",
+            "quest_claimed",
             # Playtest.
             "playtest_opened",
             "playtest_completed",
@@ -680,6 +684,10 @@ def load_experiment_stats(
             "notification_opened",
             "quick_remix_selected",
             "quick_remix_applied",
+            # Rewards.
+            "streak_extended",
+            "level_up",
+            "badge_unlocked",
         }
     )
     conversions_by_type: dict[str, set[str]] = defaultdict(set)
@@ -708,11 +716,31 @@ def load_experiment_stats(
 
     for ev in events:
         t = str(ev.type)
+        subjects: list[str] = []
         if ev.user_id:
-            conversions_by_type[t].add(str(ev.user_id))
+            subjects.append(str(ev.user_id))
         anon_id = _anon_id_from_payload(ev.payload_json)
         if anon_id:
-            conversions_by_type[t].add(anon_id)
+            subjects.append(anon_id)
+        for sid in subjects:
+            conversions_by_type[t].add(sid)
+        if t == "clip_view":
+            payload = _safe_payload(ev)
+            meta = payload.get("meta")
+            if isinstance(meta, dict):
+                raw = meta.get("watched_ms")
+                try:
+                    watched_ms = int(raw) if raw is not None else 0
+                except Exception:  # noqa: BLE001
+                    watched_ms = 0
+                if watched_ms >= 3000:
+                    for sid in subjects:
+                        conversions_by_type["clip_view_3s"].add(sid)
+
+    primary_by_experiment = {
+        # Hero-feed A/B should optimize for "quest claim" (retention-ish), not blueprint forks.
+        "hero_feed_v1": "quest_claimed",
+    }
 
     out: list[dict[str, Any]] = []
     for exp in exps:
@@ -745,13 +773,8 @@ def load_experiment_stats(
             assigned_subjects = {
                 str(a.subject_id) for a in by_variant.get(vid, []) if a.subject_id
             }
-            converted = len(
-                [
-                    uid
-                    for uid in assigned_subjects
-                    if uid in conversions_by_type.get("blueprint_fork", set())
-                ]
-            )
+            primary = str(primary_by_experiment.get(str(exp.key), "blueprint_fork"))
+            converted = len([uid for uid in assigned_subjects if uid in conversions_by_type.get(primary, set())])
             denom = max(1, len(assigned_subjects))
             kpis: dict[str, Any] = {}
             for k in conversion_types:

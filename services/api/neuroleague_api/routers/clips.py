@@ -288,27 +288,9 @@ def feed(
 
     def _load_hero_ids() -> list[str]:
         try:
-            backend = get_storage_backend()
-            key = "ops/hero_clips.json"
-            if not backend.exists(key=key):
-                return []
-            raw = backend.get_bytes(key=key)
-            parsed = orjson.loads(raw)
-            if isinstance(parsed, list):
-                out = [str(x).strip() for x in parsed if str(x).strip()]
-                return out
-            if isinstance(parsed, dict):
-                by_mode = parsed.get("by_mode")
-                if isinstance(by_mode, dict):
-                    cur = by_mode.get(str(mode))
-                    if isinstance(cur, list):
-                        out = [str(x).strip() for x in cur if str(x).strip()]
-                        return out
-                ids = parsed.get("replay_ids")
-                if isinstance(ids, list):
-                    out = [str(x).strip() for x in ids if str(x).strip()]
-                    return out
-            return []
+            from neuroleague_api.hero_clips import load_hero_replay_ids
+
+            return load_hero_replay_ids(mode=mode)
         except Exception:  # noqa: BLE001
             return []
 

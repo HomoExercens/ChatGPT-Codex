@@ -211,6 +211,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         build_code,
         blueprints,
         challenges,
+        hero_clips,
         clips,
         discord,
         demo,
@@ -256,6 +257,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
     app.include_router(users.router)
     app.include_router(assets.router)
     app.include_router(ops.router)
+    app.include_router(hero_clips.router)
     app.include_router(featured.router)
     app.include_router(featured.ops_router)
     app.include_router(quests.router)

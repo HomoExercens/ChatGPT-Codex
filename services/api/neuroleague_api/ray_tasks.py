@@ -408,6 +408,33 @@ def ranked_match_job(
                     except Exception:  # noqa: BLE001
                         pass
 
+                    # Progression: update win-badge counters (PERFECT/ONE-SHOT/CLUTCH) for challenge wins.
+                    try:
+                        from neuroleague_api.progression import apply_challenge_win_badge
+
+                        _badge, unlocked = apply_challenge_win_badge(
+                            session,
+                            user_id=str(user_a_id),
+                            replay_artifact_path=str(artifact_path),
+                            now=now,
+                        )
+                        for bid in unlocked:
+                            log_event(
+                                session,
+                                type="badge_unlocked",
+                                user_id=str(user_a_id),
+                                request=None,
+                                payload={
+                                    "badge_id": str(bid),
+                                    "source": "challenge_win",
+                                    "match_id": str(match_id),
+                                    "replay_id": str(replay_id),
+                                },
+                                now=now,
+                            )
+                    except Exception:  # noqa: BLE001
+                        pass
+
                     # Reply-chain: if this challenge targeted a clip, emit reply_clip_created.
                     try:
                         from sqlalchemy import desc, select
