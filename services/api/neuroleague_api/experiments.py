@@ -97,6 +97,54 @@ DEFAULT_EXPERIMENTS: dict[str, dict[str, Any]] = {
             {"id": "hero_first", "weight": 0.5, "config": {"hero_first": True}},
         ],
     },
+    # /play gesture thresholds (input feel tuning).
+    "gesture_thresholds_v1": {
+        "status": "running",
+        "variants": [
+            {
+                "id": "control",
+                "weight": 0.34,
+                "config": {
+                    "double_tap_ms": 260,
+                    "double_tap_slop_px": 14,
+                    "tap_slop_px": 10,
+                    "drag_start_px": 12,
+                    "vertical_dominance": 1.2,
+                    "swipe_commit_frac": 0.18,
+                    "swipe_commit_min_px": 64,
+                    "swipe_velocity_px_ms": 0.65,
+                },
+            },
+            {
+                "id": "variant_a",
+                "weight": 0.33,
+                "config": {
+                    "double_tap_ms": 240,
+                    "double_tap_slop_px": 16,
+                    "tap_slop_px": 12,
+                    "drag_start_px": 14,
+                    "vertical_dominance": 1.15,
+                    "swipe_commit_frac": 0.17,
+                    "swipe_commit_min_px": 60,
+                    "swipe_velocity_px_ms": 0.6,
+                },
+            },
+            {
+                "id": "variant_b",
+                "weight": 0.33,
+                "config": {
+                    "double_tap_ms": 280,
+                    "double_tap_slop_px": 12,
+                    "tap_slop_px": 8,
+                    "drag_start_px": 12,
+                    "vertical_dominance": 1.3,
+                    "swipe_commit_frac": 0.2,
+                    "swipe_commit_min_px": 72,
+                    "swipe_velocity_px_ms": 0.7,
+                },
+            },
+        ],
+    },
 }
 
 BANDIT_VERSION = "bandit_v1"

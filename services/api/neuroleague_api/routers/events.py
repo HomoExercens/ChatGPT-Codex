@@ -40,6 +40,8 @@ EventType = Literal[
     "play_open",
     "ftue_completed",
     # /play gesture telemetry (v2.1.1).
+    "swipe_attempt",
+    "tap_attempt",
     "swipe_next",
     "swipe_prev",
     "double_tap_reaction",

@@ -19,6 +19,24 @@ type TapInfo = {
   clientY: number;
 };
 
+export type SwipeAttemptInfo = {
+  dx: number;
+  dy: number;
+  velocity: number;
+  directionCandidate: 'next' | 'prev';
+  committed: boolean;
+  cancelReason: string | null;
+};
+
+export type GesturePagerThresholds = {
+  tapSlopPx: number;
+  dragStartPx: number;
+  verticalDominance: number;
+  swipeCommitFrac: number;
+  swipeCommitMinPx: number;
+  swipeVelocityPxMs: number;
+};
+
 export function GesturePager(props: {
   index: number;
   count: number;
@@ -28,8 +46,11 @@ export function GesturePager(props: {
   pageClassName?: string;
   renderPage: (index: number) => React.ReactNode;
   onTap?: (info: TapInfo) => void;
+  onSwipeAttempt?: (info: SwipeAttemptInfo) => void;
+  thresholds?: Partial<GesturePagerThresholds>;
 }) {
-  const { index, count, onIndexChange, reduceMotion, className, pageClassName, renderPage, onTap } = props;
+  const { index, count, onIndexChange, reduceMotion, className, pageClassName, renderPage, onTap, onSwipeAttempt } =
+    props;
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const startRef = React.useRef<{
     x0: number;
@@ -40,6 +61,7 @@ export function GesturePager(props: {
     lastT: number;
     dragging: boolean;
     canceled: boolean;
+    cancelReason: string | null;
   } | null>(null);
   const pendingIndex = React.useRef<number | null>(null);
 
@@ -49,12 +71,29 @@ export function GesturePager(props: {
 
   const heightRef = React.useRef(0);
 
+  const PRESS_PULSE_MS = 120;
+  const [pressPulse, setPressPulse] = React.useState(false);
+  const pressPulseTimerRef = React.useRef<number | null>(null);
+
+  const n = (value: unknown, fallback: number) =>
+    typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+  const clearPressPulse = React.useCallback(() => {
+    if (pressPulseTimerRef.current) {
+      window.clearTimeout(pressPulseTimerRef.current);
+      pressPulseTimerRef.current = null;
+    }
+    setPressPulse(false);
+  }, []);
+
   React.useEffect(() => {
     pendingIndex.current = null;
     setAnimating(false);
     setDragY(0);
     dragYRef.current = 0;
   }, [count]);
+
+  React.useEffect(() => clearPressPulse, [clearPressPulse]);
 
   const measure = () => {
     const h = containerRef.current?.clientHeight ?? 0;
@@ -84,9 +123,12 @@ export function GesturePager(props: {
     dragYRef.current = next > index ? -h : next < index ? h : 0;
   };
 
-  const TAP_SLOP_PX = 10;
-  const DRAG_START_PX = 12;
-  const VERTICAL_DOMINANCE = 1.2;
+  const TAP_SLOP_PX = n(props.thresholds?.tapSlopPx, 10);
+  const DRAG_START_PX = n(props.thresholds?.dragStartPx, 12);
+  const VERTICAL_DOMINANCE = n(props.thresholds?.verticalDominance, 1.2);
+  const SWIPE_COMMIT_FRAC = n(props.thresholds?.swipeCommitFrac, 0.18);
+  const SWIPE_COMMIT_MIN_PX = n(props.thresholds?.swipeCommitMinPx, 64);
+  const SWIPE_VELOCITY_PX_MS = n(props.thresholds?.swipeVelocityPxMs, 0.65);
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (animating) return;
@@ -94,6 +136,12 @@ export function GesturePager(props: {
     if (isInteractiveTarget(e.target)) return;
     const h = measure();
     if (!h) return;
+    clearPressPulse();
+    setPressPulse(true);
+    pressPulseTimerRef.current = window.setTimeout(() => {
+      pressPulseTimerRef.current = null;
+      setPressPulse(false);
+    }, PRESS_PULSE_MS);
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {
@@ -109,6 +157,7 @@ export function GesturePager(props: {
       lastT: now,
       dragging: false,
       canceled: false,
+      cancelReason: null,
     };
     setDragY(0);
     dragYRef.current = 0;
@@ -132,10 +181,12 @@ export function GesturePager(props: {
     // Don't lock into a swipe until the user has moved beyond slop.
     if (!st.dragging) {
       if (dxAbs < TAP_SLOP_PX && dyAbs < TAP_SLOP_PX) return;
+      clearPressPulse();
 
       // Prefer vertical pager; ignore obvious horizontal drags.
       if (dxAbs >= DRAG_START_PX && dxAbs >= dyAbs * VERTICAL_DOMINANCE) {
         st.canceled = true;
+        st.cancelReason = 'horizontal_dominance';
         setDragY(0);
         dragYRef.current = 0;
         return;
@@ -157,8 +208,22 @@ export function GesturePager(props: {
   const onPointerUp = () => {
     const st = startRef.current;
     startRef.current = null;
+    clearPressPulse();
     if (!st) return;
     if (st.canceled) {
+      const dx = st.lastX - st.x0;
+      const dy = st.lastY - st.y0;
+      const dt = Math.max(1, st.lastT - st.t0);
+      const directionCandidate: 'next' | 'prev' = dy < 0 ? 'next' : 'prev';
+      const velocity = Math.abs(dy) / dt;
+      onSwipeAttempt?.({
+        dx,
+        dy,
+        velocity,
+        directionCandidate,
+        committed: false,
+        cancelReason: st.cancelReason ?? 'canceled',
+      });
       pendingIndex.current = null;
       setAnimating(false);
       setDragY(0);
@@ -190,11 +255,33 @@ export function GesturePager(props: {
       return;
     }
 
-    const threshold = Math.max(64, Math.round(h * 0.18));
-    const vThreshold = 0.65;
+    const threshold = Math.max(SWIPE_COMMIT_MIN_PX, Math.round(h * SWIPE_COMMIT_FRAC));
+    const vThreshold = SWIPE_VELOCITY_PX_MS;
 
     const wantsNext = dy < -threshold || v < -vThreshold;
     const wantsPrev = dy > threshold || v > vThreshold;
+
+    if (st.dragging) {
+      const rawDx = st.lastX - st.x0;
+      const rawDy = st.lastY - st.y0;
+      const directionCandidate: 'next' | 'prev' = rawDy < 0 ? 'next' : 'prev';
+      const nextIndex = wantsNext
+        ? clampIndex(index + 1, count)
+        : wantsPrev
+          ? clampIndex(index - 1, count)
+          : index;
+      const committedClamped = nextIndex !== index;
+      const cancelReason =
+        committedClamped ? null : wantsNext || wantsPrev ? 'edge_clamp' : 'threshold_not_met';
+      onSwipeAttempt?.({
+        dx: rawDx,
+        dy: rawDy,
+        velocity: Math.abs(rawDy) / dt,
+        directionCandidate,
+        committed: Boolean(committedClamped),
+        cancelReason,
+      });
+    }
 
     if (wantsNext) settle(clampIndex(index + 1, count));
     else if (wantsPrev) settle(clampIndex(index - 1, count));
@@ -202,7 +289,24 @@ export function GesturePager(props: {
   };
 
   const onPointerCancel = () => {
+    const st = startRef.current;
     startRef.current = null;
+    clearPressPulse();
+    if (st && st.dragging) {
+      const dx = st.lastX - st.x0;
+      const dy = st.lastY - st.y0;
+      const dt = Math.max(1, st.lastT - st.t0);
+      const directionCandidate: 'next' | 'prev' = dy < 0 ? 'next' : 'prev';
+      const velocity = Math.abs(dy) / dt;
+      onSwipeAttempt?.({
+        dx,
+        dy,
+        velocity,
+        directionCandidate,
+        committed: false,
+        cancelReason: 'pointer_cancelled',
+      });
+    }
     if (Math.abs(dragYRef.current) < 1) {
       pendingIndex.current = null;
       setAnimating(false);
@@ -249,9 +353,19 @@ export function GesturePager(props: {
     >
       <div
         className={cn('absolute inset-0', transition)}
-        style={stackStyle}
-        onTransitionEnd={onTransitionEnd}
-      >
+    style={stackStyle}
+    onTransitionEnd={onTransitionEnd}
+  >
+        <div
+          data-testid="press-feedback"
+          data-active={pressPulse ? '1' : '0'}
+          aria-hidden="true"
+          className={cn(
+            'pointer-events-none absolute inset-0 z-10 bg-gradient-to-b from-white/5 via-black/0 to-black/10',
+            pressPulse ? 'opacity-100' : 'opacity-0',
+            reduceMotion ? '' : 'transition-opacity duration-150 ease-out'
+          )}
+        />
         {prevIdx !== null ? (
           <div className={cn('absolute inset-0 -translate-y-full', pageClassName)}>{renderPage(prevIdx)}</div>
         ) : null}

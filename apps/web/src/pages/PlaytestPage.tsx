@@ -146,17 +146,24 @@ export const PlaytestPage: React.FC = () => {
 
           <div className="flex flex-wrap gap-2">
             {demoClipUrl ? (
-              <a href={demoClipUrl}>
-                <Button onClick={() => void track('playtest_step_completed', { step_id: 1, via: 'start_button', demo_replay_id: demoReplayId })}>
-                  Start Playtest
-                </Button>
+              <a
+                href={demoClipUrl}
+                className="inline-flex items-center justify-center gap-2 select-none whitespace-nowrap font-semibold transition-[transform,background-color,border-color,box-shadow,opacity] duration-[var(--nl-dur-fast)] ease-[var(--nl-ease-out)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45 focus-visible:ring-offset-0 active:scale-[0.985] rounded-2xl h-12 px-4 text-sm text-black bg-gradient-to-r from-brand-500 to-accent-500 shadow-glow-brand hover:shadow-[0_0_28px_rgb(var(--nl-brand-500)_/_0.28)]"
+                onClick={() =>
+                  void track('playtest_step_completed', { step_id: 1, via: 'start_button', demo_replay_id: demoReplayId })
+                }
+              >
+                Start Playtest
               </a>
             ) : (
               <Button disabled>Start Playtest</Button>
             )}
-            <a href="/feedback?context=playtest">
-            <Button variant="secondary">Report issue</Button>
-          </a>
+            <a
+              href="/feedback?context=playtest"
+              className="inline-flex items-center justify-center gap-2 select-none whitespace-nowrap font-semibold transition-[transform,background-color,border-color,box-shadow,opacity] duration-[var(--nl-dur-fast)] ease-[var(--nl-ease-out)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45 focus-visible:ring-offset-0 active:scale-[0.985] rounded-2xl h-12 px-4 text-sm text-fg bg-surface-1/70 backdrop-blur border border-border/12 shadow-glass hover:bg-surface-1/80 hover:border-border/18"
+            >
+              Report issue
+            </a>
           </div>
 
           <div className="text-xs text-muted/70">

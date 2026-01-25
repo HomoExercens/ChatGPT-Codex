@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Heart, MessageCircle, Share2, Sparkles, Volume2, VolumeX, Wand2, Zap } from 'lucide-react';
 
 import { CreatureSilhouettes } from '../components/CreatureSilhouettes';
-import { GesturePager } from '../components/GesturePager';
+import { GesturePager, type GesturePagerThresholds, type SwipeAttemptInfo } from '../components/GesturePager';
 import { Icon } from '../components/Icon';
 import { ReactionBurst } from '../components/ReactionBurst';
 import { ScrimOverlay } from '../components/ScrimOverlay';
@@ -51,8 +51,19 @@ const FTUE_KEY = 'neuroleague.ftue.play.v1.dismissed';
 const HERO_FEED_KEY = 'neuroleague.play.hero_feed.v1.seen';
 const GESTURE_HINT_KEY = 'neuroleague.play.gesture_hints.v2_1_1.dismissed';
 const TICKS_PER_SEC = 20;
-const DOUBLE_TAP_MS = 260;
-const DOUBLE_TAP_SLOP_PX = 14;
+
+const DEFAULT_GESTURE_THRESHOLDS = Object.freeze({
+  doubleTapMs: 260,
+  doubleTapSlopPx: 14,
+  pager: {
+    tapSlopPx: 10,
+    dragStartPx: 12,
+    verticalDominance: 1.2,
+    swipeCommitFrac: 0.18,
+    swipeCommitMinPx: 64,
+    swipeVelocityPxMs: 0.65,
+  } satisfies GesturePagerThresholds,
+});
 
 type HudOutcome = 'win' | 'loss' | 'draw';
 type ClipHudMoment =
@@ -257,6 +268,30 @@ export const ClipsPage: React.FC = () => {
     const v = getExperimentVariant(experiments, 'clips_feed_algo', 'v2');
     return v === 'v3' ? 'v3' : 'v2';
   }, [experiments]);
+  const gestureThresholdVariant = useMemo(() => {
+    const v = getExperimentVariant(experiments, 'gesture_thresholds_v1', 'control');
+    return v === 'variant_a' || v === 'variant_b' ? v : 'control';
+  }, [experiments]);
+  const gestureThresholds = useMemo(() => {
+    const cfg = (experiments?.gesture_thresholds_v1?.config ?? {}) as Record<string, unknown>;
+    const n = (key: string, fallback: number) => {
+      const v = cfg[key];
+      return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+    };
+    const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+    return {
+      doubleTapMs: Math.round(clamp(n('double_tap_ms', DEFAULT_GESTURE_THRESHOLDS.doubleTapMs), 160, 420)),
+      doubleTapSlopPx: Math.round(clamp(n('double_tap_slop_px', DEFAULT_GESTURE_THRESHOLDS.doubleTapSlopPx), 6, 28)),
+      pager: {
+        tapSlopPx: Math.round(clamp(n('tap_slop_px', DEFAULT_GESTURE_THRESHOLDS.pager.tapSlopPx), 6, 24)),
+        dragStartPx: Math.round(clamp(n('drag_start_px', DEFAULT_GESTURE_THRESHOLDS.pager.dragStartPx), 8, 28)),
+        verticalDominance: clamp(n('vertical_dominance', DEFAULT_GESTURE_THRESHOLDS.pager.verticalDominance), 1.05, 1.8),
+        swipeCommitFrac: clamp(n('swipe_commit_frac', DEFAULT_GESTURE_THRESHOLDS.pager.swipeCommitFrac), 0.12, 0.35),
+        swipeCommitMinPx: Math.round(clamp(n('swipe_commit_min_px', DEFAULT_GESTURE_THRESHOLDS.pager.swipeCommitMinPx), 32, 160)),
+        swipeVelocityPxMs: clamp(n('swipe_velocity_px_ms', DEFAULT_GESTURE_THRESHOLDS.pager.swipeVelocityPxMs), 0.2, 1.4),
+      } satisfies GesturePagerThresholds,
+    };
+  }, [experiments]);
   const heroFeedVariant = useMemo(() => {
     const v = getExperimentVariant(experiments, 'hero_feed_v1', 'hero_first');
     return v === 'control' ? 'control' : 'hero_first';
@@ -414,6 +449,7 @@ export const ClipsPage: React.FC = () => {
             sort,
             feed_algo: feedAlgo,
             hero_variant: heroFeedVariant,
+            gesture_thresholds_variant: gestureThresholdVariant,
             ...(meta ?? {}),
           },
         }),
@@ -421,7 +457,7 @@ export const ClipsPage: React.FC = () => {
         // best-effort
       });
     },
-    [feedAlgo, heroFeedVariant, mode, sort]
+    [feedAlgo, gestureThresholdVariant, heroFeedVariant, mode, sort]
   );
 
   const autoHideTimer = useRef<number | null>(null);
@@ -970,12 +1006,18 @@ export const ClipsPage: React.FC = () => {
       const prev = lastTap.current;
       const isDoubleTap =
         Boolean(prev) &&
-        now - (prev?.t ?? 0) <= DOUBLE_TAP_MS &&
-        Math.hypot((prev?.x ?? 0) - info.clientX, (prev?.y ?? 0) - info.clientY) <= DOUBLE_TAP_SLOP_PX;
+        now - (prev?.t ?? 0) <= gestureThresholds.doubleTapMs &&
+        Math.hypot((prev?.x ?? 0) - info.clientX, (prev?.y ?? 0) - info.clientY) <= gestureThresholds.doubleTapSlopPx;
 
       if (isDoubleTap) {
         clearPendingSingleTap();
         lastTap.current = null;
+        trackPlayUiEvent('tap_attempt', {
+          replay_id: activeClip?.replay_id ?? null,
+          kind: 'double_candidate',
+          canceled: 0,
+          cancel_reason: null,
+        });
         triggerDoubleTapReaction();
         return;
       }
@@ -986,6 +1028,12 @@ export const ClipsPage: React.FC = () => {
       pendingSingleTap.current = window.setTimeout(() => {
         pendingSingleTap.current = null;
         lastTap.current = null;
+        trackPlayUiEvent('tap_attempt', {
+          replay_id: activeClip?.replay_id ?? null,
+          kind: 'single_candidate',
+          canceled: 0,
+          cancel_reason: null,
+        });
 
         // Tap-to-unmute: only from a confirmed single tap.
         const v = videoRefs.current[activeIndex];
@@ -1015,7 +1063,7 @@ export const ClipsPage: React.FC = () => {
         // Single tap toggles chrome (immersive).
         if (playChromeHidden) showChrome('tap_toggle');
         else hideChrome('tap_toggle');
-      }, DOUBLE_TAP_MS);
+      }, gestureThresholds.doubleTapMs);
     },
     [
       activeClip?.replay_id,
@@ -1025,6 +1073,8 @@ export const ClipsPage: React.FC = () => {
       dismissGestureHints,
       gestureHintsOpen,
       hideChrome,
+      gestureThresholds.doubleTapMs,
+      gestureThresholds.doubleTapSlopPx,
       lang,
       playChromeHidden,
       setSoundEnabled,
@@ -1038,6 +1088,23 @@ export const ClipsPage: React.FC = () => {
   useEffect(() => {
     activeIndexRef.current = activeIndex;
   }, [activeIndex]);
+
+  const handleSwipeAttempt = React.useCallback(
+    (info: SwipeAttemptInfo) => {
+      const idx = activeIndexRef.current;
+      const replayId = clips[idx]?.replay_id ?? null;
+      trackPlayUiEvent('swipe_attempt', {
+        replay_id: replayId,
+        direction_candidate: info.directionCandidate,
+        dx: Math.round(info.dx),
+        dy: Math.round(info.dy),
+        velocity: Number(info.velocity.toFixed(3)),
+        committed: info.committed ? 1 : 0,
+        cancel_reason: info.cancelReason,
+      });
+    },
+    [clips, trackPlayUiEvent]
+  );
 
   const handlePagerIndexChange = React.useCallback(
     (nextIdx: number) => {
@@ -1607,6 +1674,8 @@ export const ClipsPage: React.FC = () => {
             onIndexChange={handlePagerIndexChange}
             reduceMotion={reduceMotion}
             onTap={handlePagerTap}
+            onSwipeAttempt={handleSwipeAttempt}
+            thresholds={gestureThresholds.pager}
             renderPage={renderClipPage}
           />
 	        )}
