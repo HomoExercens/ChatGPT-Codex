@@ -39,6 +39,7 @@ test('ops gestures page renders (admin token)', async ({ page }) => {
   await expect(page.getByTestId('ops-gestures-coverage-strip')).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId('ops-gestures-coverage-strip')).toContainText(/uaData/i);
   await expect(page.getByTestId('ops-gestures-coverage-variant-control')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('ops-gestures-config-echo-control')).toBeVisible({ timeout: 60_000 });
 
   // Segment filter should trigger a refetch with segment param.
   await page.getByRole('button', { name: /Android · Chrome/i }).click();

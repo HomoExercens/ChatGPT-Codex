@@ -26,6 +26,7 @@ from neuroleague_api.build_of_day import (
 from neuroleague_api.core.config import Settings
 from neuroleague_api.deps import DBSession
 from neuroleague_api.eventlog import log_event
+from neuroleague_api.experiments import DEFAULT_EXPERIMENTS
 from neuroleague_api.growth_metrics import (
     FUNNEL_CLIPS_V1,
     FUNNEL_GROWTH_V1,
@@ -43,6 +44,7 @@ from neuroleague_api.models import (
     Blueprint,
     DiscordOutbox,
     Event,
+    Experiment,
     HttpErrorEvent,
     Match,
     ModerationHide,
@@ -1544,6 +1546,7 @@ class GestureThresholdsVariantSummaryOut(BaseModel):
     misfire: GestureMisfireOut = Field(default_factory=GestureMisfireOut)
     sampling: GestureSamplingOut = Field(default_factory=GestureSamplingOut)
     coverage: GestureCoverageOut = Field(default_factory=GestureCoverageOut)
+    thresholds_config: dict[str, float | int] = Field(default_factory=dict)
 
 
 class GestureThresholdsExperimentSummaryOut(BaseModel):
@@ -1588,6 +1591,67 @@ def gesture_thresholds_v1_summary(
         "reply_clip_shared",
     ]
 
+    def normalize_thresholds_config(raw: Any) -> dict[str, float | int]:
+        if not isinstance(raw, dict):
+            return {}
+        out: dict[str, float | int] = {}
+        keys_int = {
+            "double_tap_ms",
+            "double_tap_slop_px",
+            "tap_slop_px",
+            "drag_start_px",
+            "swipe_commit_min_px",
+        }
+        keys_float = {"vertical_dominance", "swipe_commit_frac", "swipe_velocity_px_ms"}
+        for k in (
+            "double_tap_ms",
+            "double_tap_slop_px",
+            "tap_slop_px",
+            "drag_start_px",
+            "vertical_dominance",
+            "swipe_commit_frac",
+            "swipe_commit_min_px",
+            "swipe_velocity_px_ms",
+        ):
+            v = raw.get(k)
+            if v is None:
+                continue
+            try:
+                if k in keys_int:
+                    out[k] = int(v)
+                elif k in keys_float:
+                    out[k] = float(v)
+            except Exception:  # noqa: BLE001
+                continue
+        return out
+
+    def load_thresholds_config_by_variant_id(db: Session) -> dict[str, dict[str, float | int]]:
+        variants: Any = []
+        exp = db.get(Experiment, "gesture_thresholds_v1")
+        if exp is not None:
+            try:
+                variants = orjson.loads((exp.variants_json or "[]").encode("utf-8"))
+            except Exception:  # noqa: BLE001
+                variants = []
+        if not isinstance(variants, list) or not variants:
+            variants = (
+                (DEFAULT_EXPERIMENTS.get("gesture_thresholds_v1") or {}).get("variants")
+                or []
+            )
+        if not isinstance(variants, list):
+            variants = []
+        out: dict[str, dict[str, float | int]] = {}
+        for v in variants:
+            if not isinstance(v, dict):
+                continue
+            vid = str(v.get("id") or "").strip()
+            if not vid:
+                continue
+            out[vid] = normalize_thresholds_config(v.get("config"))
+        return out
+
+    thresholds_config_by_variant = load_thresholds_config_by_variant_id(db)
+
     variants_out: dict[str, GestureThresholdsVariantSummaryOut] = {}
     for vid in ("control", "variant_a", "variant_b", "unknown"):
         variants_out[vid] = GestureThresholdsVariantSummaryOut(
@@ -1595,6 +1659,7 @@ def gesture_thresholds_v1_summary(
             kpis={k: {"converted": 0, "rate": 0.0} for k in kpi_keys},
             misfire=GestureMisfireOut(),
             sampling=GestureSamplingOut(),
+            thresholds_config=thresholds_config_by_variant.get(vid, {}),
         )
 
     # Scan events for segment-filtered session KPIs + gesture telemetry.

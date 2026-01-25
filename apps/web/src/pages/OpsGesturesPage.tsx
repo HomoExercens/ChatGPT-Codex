@@ -39,12 +39,24 @@ type GestureCoverage = {
   unknown_segment_rate: number;
 };
 
+type GestureThresholdsConfig = Partial<{
+  double_tap_ms: number;
+  double_tap_slop_px: number;
+  tap_slop_px: number;
+  drag_start_px: number;
+  vertical_dominance: number;
+  swipe_commit_frac: number;
+  swipe_commit_min_px: number;
+  swipe_velocity_px_ms: number;
+}>;
+
 type VariantSummary = {
   assigned: number;
   kpis: Record<string, MetricRow>;
   misfire: GestureMisfire;
   sampling: GestureSampling;
   coverage: GestureCoverage;
+  thresholds_config?: GestureThresholdsConfig;
 };
 
 type Guardrails = {
@@ -362,6 +374,9 @@ export const OpsGesturesPage: React.FC = () => {
                 const reasons = (mis.cancel_reasons_top ?? []).slice(0, 3);
                 const hasSample = Number(samp.sessions_n ?? 0) > 0;
                 const cov = v.coverage ?? ({} as GestureCoverage);
+                const cfg = (v.thresholds_config ?? {}) as GestureThresholdsConfig;
+                const hasCfg =
+                  Object.values(cfg).filter((x) => Number.isFinite(Number(x))).length > 0;
                 return (
                   <Card key={vid} className="overflow-hidden">
                     <CardHeader>
@@ -427,6 +442,31 @@ export const OpsGesturesPage: React.FC = () => {
                         <div className="mt-2 text-xs text-muted">
                           UAData coverage is best-effort (often HTTPS Chromium). container_hint comes from <span className="font-mono">X-App-Container</span>.
                         </div>
+                      </div>
+
+                      <div
+                        className="rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3"
+                        data-testid={`ops-gestures-config-echo-${vid}`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-[11px] font-bold text-muted uppercase">Current config</div>
+                          <Badge variant={hasCfg ? 'neutral' : 'warning'}>{hasCfg ? 'ok' : 'missing'}</Badge>
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted nl-tabular-nums">
+                          <div>double tap {fmtCount(cfg.double_tap_ms)}ms</div>
+                          <div>double slop {fmtCount(cfg.double_tap_slop_px)}px</div>
+                          <div>tap slop {fmtCount(cfg.tap_slop_px)}px</div>
+                          <div>drag start {fmtCount(cfg.drag_start_px)}px</div>
+                          <div>vertical dom {fmtCount(cfg.vertical_dominance)}</div>
+                          <div>commit frac {fmtCount(cfg.swipe_commit_frac)}</div>
+                          <div>commit min {fmtCount(cfg.swipe_commit_min_px)}px</div>
+                          <div>velocity {fmtCount(cfg.swipe_velocity_px_ms)}px/ms</div>
+                        </div>
+                        {!hasCfg ? (
+                          <div className="mt-2 text-xs text-muted">
+                            Config not available for this variant. Check the <span className="font-mono">gesture_thresholds_v1</span> experiment row.
+                          </div>
+                        ) : null}
                       </div>
 
                       <div className="rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">
