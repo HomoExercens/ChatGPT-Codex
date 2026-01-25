@@ -23,6 +23,7 @@ import { OpsPacksPage } from './pages/OpsPacksPage';
 import { OpsQuestsPage } from './pages/OpsQuestsPage';
 import { OpsWeeklyPage } from './pages/OpsWeeklyPage';
 import { OpsHeroPage } from './pages/OpsHeroPage';
+import { OpsGesturesPage } from './pages/OpsGesturesPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { QuickPage } from './pages/QuickPage';
 import { ReplayPage } from './pages/ReplayPage';
@@ -164,6 +165,7 @@ function App() {
         <Route path="/ops/moderation" element={<OpsModerationPage />} />
         <Route path="/ops/featured" element={<OpsFeaturedPage />} />
         <Route path="/ops/hero" element={<OpsHeroPage />} />
+        <Route path="/ops/gestures" element={<OpsGesturesPage />} />
         <Route path="/ops/build-of-day" element={<OpsBuildOfDayPage />} />
         <Route path="/ops/discord" element={<OpsDiscordPage />} />
         <Route path="/ops/packs" element={<OpsPacksPage />} />

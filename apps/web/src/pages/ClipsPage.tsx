@@ -65,6 +65,10 @@ const DEFAULT_GESTURE_THRESHOLDS = Object.freeze({
   } satisfies GesturePagerThresholds,
 });
 
+const GESTURE_ATTEMPT_SAMPLING_KEY = 'neuroleague.play.gesture_attempt_sampling.v1';
+const GESTURE_ATTEMPT_SAMPLE_RATE = 0.3;
+const GESTURE_ATTEMPT_SESSION_CAP = 20;
+
 type HudOutcome = 'win' | 'loss' | 'draw';
 type ClipHudMoment =
   | { kind: 'kill' | 'crit' | 'synergy'; atSec: number }
@@ -116,6 +120,22 @@ function hashU32(s: string): number {
     h = Math.imul(h, 16777619);
   }
   return h >>> 0;
+}
+
+function safeGetStorage(storage: Storage | undefined, key: string): string | null {
+  try {
+    return storage?.getItem(key) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function safeSetStorage(storage: Storage | undefined, key: string, value: string): void {
+  try {
+    storage?.setItem(key, value);
+  } catch {
+    // ignore
+  }
 }
 
 function offsetForDamage(replayId: string, idx: number): { x: number; y: number } {
@@ -458,6 +478,81 @@ export const ClipsPage: React.FC = () => {
       });
     },
     [feedAlgo, gestureThresholdVariant, heroFeedVariant, mode, sort]
+  );
+
+  type GestureAttemptSamplingState = {
+    v: 1;
+    sample_rate: number;
+    sampled: boolean;
+    remaining: number;
+  };
+
+  const takeGestureAttemptToken = React.useCallback((): { ok: boolean; meta?: Record<string, unknown> } => {
+    const ss = typeof sessionStorage !== 'undefined' ? sessionStorage : undefined;
+    const ls = typeof localStorage !== 'undefined' ? localStorage : undefined;
+
+    const raw = safeGetStorage(ss, GESTURE_ATTEMPT_SAMPLING_KEY);
+    let state: GestureAttemptSamplingState | null = null;
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as Partial<GestureAttemptSamplingState>;
+        if (
+          parsed &&
+          parsed.v === 1 &&
+          typeof parsed.sample_rate === 'number' &&
+          Number.isFinite(parsed.sample_rate) &&
+          typeof parsed.sampled === 'boolean' &&
+          typeof parsed.remaining === 'number' &&
+          Number.isFinite(parsed.remaining)
+        ) {
+          state = {
+            v: 1,
+            sample_rate: Math.max(0, Math.min(1, parsed.sample_rate)),
+            sampled: Boolean(parsed.sampled),
+            remaining: Math.max(0, Math.min(999, Math.round(parsed.remaining))),
+          };
+        }
+      } catch {
+        state = null;
+      }
+    }
+
+    if (!state) {
+      const sampleRate = Math.max(0, Math.min(1, GESTURE_ATTEMPT_SAMPLE_RATE));
+      const sessionId =
+        (safeGetStorage(ss, 'neuroleague.session_id') ?? safeGetStorage(ls, 'neuroleague.session_id') ?? '').trim() ||
+        (safeGetStorage(ls, 'neuroleague.device_id') ?? '').trim();
+      const r = sessionId ? (hashU32(`gesture_attempts:${sessionId}`) % 10_000) / 10_000 : Math.random();
+      const sampled = sampleRate >= 1 ? true : r < sampleRate;
+      state = { v: 1, sample_rate: sampleRate, sampled, remaining: GESTURE_ATTEMPT_SESSION_CAP };
+    }
+
+    safeSetStorage(ss, GESTURE_ATTEMPT_SAMPLING_KEY, JSON.stringify(state));
+
+    if (!state.sampled) return { ok: false };
+    if (state.remaining <= 0) return { ok: false };
+
+    state.remaining -= 1;
+    safeSetStorage(ss, GESTURE_ATTEMPT_SAMPLING_KEY, JSON.stringify(state));
+
+    return {
+      ok: true,
+      meta: {
+        gesture_attempt_sample_rate: state.sample_rate,
+        gesture_attempt_sampled: 1,
+        gesture_attempt_session_cap: GESTURE_ATTEMPT_SESSION_CAP,
+        gesture_attempt_session_remaining: state.remaining,
+      },
+    };
+  }, []);
+
+  const trackGestureAttempt = React.useCallback(
+    (type: 'tap_attempt' | 'swipe_attempt', meta: Record<string, unknown>) => {
+      const tok = takeGestureAttemptToken();
+      if (!tok.ok) return;
+      trackPlayUiEvent(type, { ...(tok.meta ?? {}), ...(meta ?? {}) });
+    },
+    [takeGestureAttemptToken, trackPlayUiEvent]
   );
 
   const autoHideTimer = useRef<number | null>(null);
@@ -1012,7 +1107,7 @@ export const ClipsPage: React.FC = () => {
       if (isDoubleTap) {
         clearPendingSingleTap();
         lastTap.current = null;
-        trackPlayUiEvent('tap_attempt', {
+        trackGestureAttempt('tap_attempt', {
           replay_id: activeClip?.replay_id ?? null,
           kind: 'double_candidate',
           canceled: 0,
@@ -1028,7 +1123,7 @@ export const ClipsPage: React.FC = () => {
       pendingSingleTap.current = window.setTimeout(() => {
         pendingSingleTap.current = null;
         lastTap.current = null;
-        trackPlayUiEvent('tap_attempt', {
+        trackGestureAttempt('tap_attempt', {
           replay_id: activeClip?.replay_id ?? null,
           kind: 'single_candidate',
           canceled: 0,
@@ -1079,6 +1174,7 @@ export const ClipsPage: React.FC = () => {
       playChromeHidden,
       setSoundEnabled,
       showChrome,
+      trackGestureAttempt,
       trackPlayUiEvent,
       triggerDoubleTapReaction,
     ]
@@ -1093,7 +1189,7 @@ export const ClipsPage: React.FC = () => {
     (info: SwipeAttemptInfo) => {
       const idx = activeIndexRef.current;
       const replayId = clips[idx]?.replay_id ?? null;
-      trackPlayUiEvent('swipe_attempt', {
+      trackGestureAttempt('swipe_attempt', {
         replay_id: replayId,
         direction_candidate: info.directionCandidate,
         dx: Math.round(info.dx),
@@ -1103,7 +1199,7 @@ export const ClipsPage: React.FC = () => {
         cancel_reason: info.cancelReason,
       });
     },
-    [clips, trackPlayUiEvent]
+    [clips, trackGestureAttempt]
   );
 
   const handlePagerIndexChange = React.useCallback(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 import os
 import subprocess
 import sys
@@ -1494,6 +1495,229 @@ def hero_feed_v1_summary(
     )
 
     return HeroFeedExperimentSummaryOut(
+        range=f"{days}d",
+        variants=variants_out,
+        guardrails=HeroFeedGuardrailsOut(
+            http_5xx=http_5xx,
+            http_429=http_429,
+            video_load_fail_events=video_load_fail_events,
+            render_jobs_queued=queued,
+            render_jobs_running=running,
+        ),
+    )
+
+
+class GestureCancelReasonOut(BaseModel):
+    source: str
+    reason: str
+    count: float
+    pct: float
+
+
+class GestureMisfireOut(BaseModel):
+    swipe_attempt_count: float = 0.0
+    swipe_commit_count: float = 0.0
+    swipe_cancel_count: float = 0.0
+    tap_attempt_count: float = 0.0
+    tap_cancel_count: float = 0.0
+    misfire_score: float = 0.0
+    cancel_reasons_top: list[GestureCancelReasonOut] = Field(default_factory=list)
+
+
+class GestureThresholdsVariantSummaryOut(BaseModel):
+    assigned: int = 0
+    kpis: dict[str, dict[str, float | int]] = Field(default_factory=dict)
+    misfire: GestureMisfireOut = Field(default_factory=GestureMisfireOut)
+
+
+class GestureThresholdsExperimentSummaryOut(BaseModel):
+    range: str
+    experiment_key: str = "gesture_thresholds_v1"
+    variants: dict[str, GestureThresholdsVariantSummaryOut] = Field(default_factory=dict)
+    guardrails: HeroFeedGuardrailsOut = Field(default_factory=HeroFeedGuardrailsOut)
+
+
+@router.get(
+    "/metrics/experiments/gesture_thresholds_v1_summary",
+    response_model=GestureThresholdsExperimentSummaryOut,
+)
+def gesture_thresholds_v1_summary(
+    range: str = "7d",
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+    db: Session = DBSession,
+) -> GestureThresholdsExperimentSummaryOut:
+    _require_admin(x_admin_token)
+    days = _parse_days(range)
+    now = datetime.now(UTC)
+    cutoff = now - timedelta(days=int(days))
+
+    stats = load_experiment_stats(
+        db, experiment_keys=["gesture_thresholds_v1"], days=int(days)
+    )
+    exp = stats[0] if stats and isinstance(stats[0], dict) else {}
+    variants_in = exp.get("variants") if isinstance(exp.get("variants"), list) else []
+
+    kpi_keys = [
+        "clip_view_3s",
+        "beat_this_click",
+        "match_done",
+        "reply_clip_shared",
+    ]
+
+    variants_out: dict[str, GestureThresholdsVariantSummaryOut] = {}
+    for v in variants_in:
+        if not isinstance(v, dict):
+            continue
+        vid = str(v.get("id") or "control")
+        assigned = int(v.get("assigned") or 0)
+        kpis_raw = v.get("kpis") if isinstance(v.get("kpis"), dict) else {}
+        kpis_filtered: dict[str, dict[str, float | int]] = {}
+        for k in kpi_keys:
+            row = kpis_raw.get(k) if isinstance(kpis_raw.get(k), dict) else None
+            if not row:
+                kpis_filtered[k] = {"converted": 0, "rate": 0.0}
+                continue
+            kpis_filtered[k] = {
+                "converted": int(row.get("converted") or 0),
+                "rate": float(row.get("rate") or 0.0),
+            }
+        variants_out[vid] = GestureThresholdsVariantSummaryOut(
+            assigned=assigned,
+            kpis=kpis_filtered,
+            misfire=GestureMisfireOut(),
+        )
+
+    # Aggregate attempt telemetry (sampled) for misfire/cancel reasons.
+    evs = db.scalars(
+        select(Event)
+        .where(Event.created_at >= cutoff)
+        .where(Event.type.in_(["swipe_attempt", "tap_attempt"]))
+        .order_by(Event.created_at)
+    ).all()
+
+    def parse_payload(ev: Event) -> dict[str, Any]:
+        try:
+            obj = orjson.loads((ev.payload_json or "{}").encode("utf-8"))
+        except Exception:  # noqa: BLE001
+            return {}
+        return obj if isinstance(obj, dict) else {}
+
+    by_variant: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    reasons: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+
+    for ev in evs:
+        payload = parse_payload(ev)
+        meta = payload.get("meta")
+        if not isinstance(meta, dict):
+            continue
+        variant = meta.get("gesture_thresholds_variant")
+        variant_id = str(variant).strip() if isinstance(variant, str) else ""
+        if variant_id not in {"control", "variant_a", "variant_b"}:
+            variant_id = "unknown"
+
+        sr_raw = meta.get("gesture_attempt_sample_rate")
+        try:
+            sr = float(sr_raw) if sr_raw is not None else 1.0
+        except Exception:  # noqa: BLE001
+            sr = 1.0
+        if not (0.0 < sr <= 1.0):
+            sr = 1.0
+        w = 1.0 / float(sr) if sr > 0 else 1.0
+
+        if str(ev.type) == "swipe_attempt":
+            by_variant[variant_id]["swipe_attempt_count"] += w
+            committed = int(meta.get("committed") or 0)
+            if committed == 1:
+                by_variant[variant_id]["swipe_commit_count"] += w
+            else:
+                by_variant[variant_id]["swipe_cancel_count"] += w
+                reason = meta.get("cancel_reason")
+                rs = str(reason).strip() if isinstance(reason, str) and str(reason).strip() else "unknown"
+                reasons[variant_id][f"swipe:{rs}"] += w
+
+        if str(ev.type) == "tap_attempt":
+            by_variant[variant_id]["tap_attempt_count"] += w
+            canceled = int(meta.get("canceled") or 0)
+            if canceled == 1:
+                by_variant[variant_id]["tap_cancel_count"] += w
+                reason = meta.get("cancel_reason")
+                rs = str(reason).strip() if isinstance(reason, str) and str(reason).strip() else "unknown"
+                reasons[variant_id][f"tap:{rs}"] += w
+
+    for vid, out in variants_out.items():
+        g = by_variant.get(vid) or {}
+        swipe_attempt = float(g.get("swipe_attempt_count") or 0.0)
+        swipe_commit = float(g.get("swipe_commit_count") or 0.0)
+        swipe_cancel = float(g.get("swipe_cancel_count") or 0.0)
+        tap_attempt = float(g.get("tap_attempt_count") or 0.0)
+        tap_cancel = float(g.get("tap_cancel_count") or 0.0)
+        swipe_cancel_rate = float(swipe_cancel) / float(swipe_attempt) if swipe_attempt > 0 else 0.0
+        tap_cancel_rate = float(tap_cancel) / float(tap_attempt) if tap_attempt > 0 else 0.0
+        misfire = (0.6 * swipe_cancel_rate) + (0.4 * tap_cancel_rate)
+
+        top = []
+        total_c = float(swipe_cancel + tap_cancel)
+        rr = reasons.get(vid) or {}
+        for k, v in sorted(rr.items(), key=lambda kv: (-float(kv[1] or 0.0), str(kv[0]))):
+            if not k or float(v or 0.0) <= 0:
+                continue
+            src, _, reason = str(k).partition(":")
+            top.append(
+                GestureCancelReasonOut(
+                    source=str(src),
+                    reason=str(reason or "unknown"),
+                    count=float(v),
+                    pct=float(v) / float(total_c) if total_c > 0 else 0.0,
+                )
+            )
+            if len(top) >= 3:
+                break
+
+        out.misfire = GestureMisfireOut(
+            swipe_attempt_count=swipe_attempt,
+            swipe_commit_count=swipe_commit,
+            swipe_cancel_count=swipe_cancel,
+            tap_attempt_count=tap_attempt,
+            tap_cancel_count=tap_cancel,
+            misfire_score=float(misfire),
+            cancel_reasons_top=top,
+        )
+
+    http_5xx = int(
+        db.scalar(
+            select(func.count(HttpErrorEvent.id))
+            .where(HttpErrorEvent.created_at >= cutoff)
+            .where(HttpErrorEvent.status >= 500)
+        )
+        or 0
+    )
+    http_429 = int(
+        db.scalar(
+            select(func.count(HttpErrorEvent.id))
+            .where(HttpErrorEvent.created_at >= cutoff)
+            .where(HttpErrorEvent.status == 429)
+        )
+        or 0
+    )
+    video_load_fail_events = int(
+        db.scalar(
+            select(func.count(Event.id))
+            .where(Event.created_at >= cutoff)
+            .where(Event.type == "video_load_fail")
+        )
+        or 0
+    )
+
+    queued = int(
+        db.scalar(select(func.count(RenderJob.id)).where(RenderJob.status == "queued"))
+        or 0
+    )
+    running = int(
+        db.scalar(select(func.count(RenderJob.id)).where(RenderJob.status == "running"))
+        or 0
+    )
+
+    return GestureThresholdsExperimentSummaryOut(
         range=f"{days}d",
         variants=variants_out,
         guardrails=HeroFeedGuardrailsOut(

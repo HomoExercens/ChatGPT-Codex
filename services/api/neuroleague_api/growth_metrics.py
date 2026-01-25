@@ -254,6 +254,9 @@ def rollup_growth_metrics(
                         "quick_remix_applied",
                         "wishlist_click",
                         "discord_click",
+                        # /play gesture ops (attempt telemetry; may be sampled).
+                        "tap_attempt",
+                        "swipe_attempt",
                     ]
                     + sorted(funnel_steps)
                 )
@@ -262,6 +265,8 @@ def rollup_growth_metrics(
 
         unique_by_type: dict[str, set[str]] = defaultdict(set)
         count_by_type: dict[str, int] = defaultdict(int)
+        gesture_by_variant: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+        cancel_reasons_by_variant: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
         for ev in events:
             count_by_type[str(ev.type)] += 1
             payload = _safe_payload(ev)
@@ -291,6 +296,45 @@ def rollup_growth_metrics(
                         step_id = -1
                     if 1 <= step_id <= 6:
                         unique_by_type[f"playtest_step_{step_id}"].add(key)
+
+            # Gesture attempt telemetry (sampled): aggregate by gesture_thresholds_v1 variant.
+            if str(ev.type) in {"swipe_attempt", "tap_attempt"}:
+                meta = payload.get("meta")
+                if not isinstance(meta, dict):
+                    continue
+                variant = meta.get("gesture_thresholds_variant")
+                variant_id = str(variant).strip() if isinstance(variant, str) else ""
+                if variant_id not in {"control", "variant_a", "variant_b"}:
+                    variant_id = "unknown"
+
+                sr_raw = meta.get("gesture_attempt_sample_rate")
+                try:
+                    sr = float(sr_raw) if sr_raw is not None else 1.0
+                except Exception:  # noqa: BLE001
+                    sr = 1.0
+                if not (0.0 < sr <= 1.0):
+                    sr = 1.0
+                weight = 1.0 / float(sr) if sr > 0 else 1.0
+
+                if str(ev.type) == "swipe_attempt":
+                    gesture_by_variant[variant_id]["swipe_attempt_count"] += float(weight)
+                    committed = int(meta.get("committed") or 0)
+                    if committed == 1:
+                        gesture_by_variant[variant_id]["swipe_commit_count"] += float(weight)
+                    else:
+                        gesture_by_variant[variant_id]["swipe_cancel_count"] += float(weight)
+                        reason = meta.get("cancel_reason")
+                        reason_s = str(reason).strip() if isinstance(reason, str) and str(reason).strip() else "unknown"
+                        cancel_reasons_by_variant[variant_id][f"swipe:{reason_s}"] += float(weight)
+
+                if str(ev.type) == "tap_attempt":
+                    gesture_by_variant[variant_id]["tap_attempt_count"] += float(weight)
+                    canceled = int(meta.get("canceled") or 0)
+                    if canceled == 1:
+                        gesture_by_variant[variant_id]["tap_cancel_count"] += float(weight)
+                        reason = meta.get("cancel_reason")
+                        reason_s = str(reason).strip() if isinstance(reason, str) and str(reason).strip() else "unknown"
+                        cancel_reasons_by_variant[variant_id][f"tap:{reason_s}"] += float(weight)
 
         # Global match KPIs (ranked, all users) for this day.
         total_matches = int(
@@ -525,6 +569,51 @@ def rollup_growth_metrics(
             add_metric("time_to_first_match_p50_sec", float(p50))
         if p90 is not None:
             add_metric("time_to_first_match_p90_sec", float(p90))
+
+        # Gesture ops rollup (daily, by gesture_thresholds_v1 variant).
+        for variant_id in ("control", "variant_a", "variant_b", "unknown"):
+            g = gesture_by_variant.get(variant_id) or {}
+            swipe_attempt = float(g.get("swipe_attempt_count") or 0.0)
+            swipe_commit = float(g.get("swipe_commit_count") or 0.0)
+            swipe_cancel = float(g.get("swipe_cancel_count") or 0.0)
+            tap_attempt = float(g.get("tap_attempt_count") or 0.0)
+            tap_cancel = float(g.get("tap_cancel_count") or 0.0)
+
+            swipe_cancel_rate = float(swipe_cancel) / float(swipe_attempt) if swipe_attempt > 0 else 0.0
+            tap_cancel_rate = float(tap_cancel) / float(tap_attempt) if tap_attempt > 0 else 0.0
+            misfire_score = (0.6 * swipe_cancel_rate) + (0.4 * tap_cancel_rate)
+
+            prefix = f"gesture_thresholds_v1.{variant_id}"
+            add_metric(f"{prefix}.swipe_attempt_count", swipe_attempt, meta={"estimated": True})
+            add_metric(f"{prefix}.swipe_commit_count", swipe_commit, meta={"estimated": True})
+            add_metric(f"{prefix}.swipe_cancel_count", swipe_cancel, meta={"estimated": True})
+            add_metric(f"{prefix}.tap_attempt_count", tap_attempt, meta={"estimated": True})
+            add_metric(f"{prefix}.tap_cancel_count", tap_cancel, meta={"estimated": True})
+            add_metric(f"{prefix}.misfire_score", float(misfire_score), meta={"swipe_w": 0.6, "tap_w": 0.4})
+
+            # cancel_reason top3 (combined, for quick diagnosis).
+            reasons = cancel_reasons_by_variant.get(variant_id) or {}
+            total_c = float(swipe_cancel + tap_cancel)
+            rows = []
+            for k, v in sorted(reasons.items(), key=lambda kv: (-float(kv[1] or 0.0), str(kv[0]))):
+                if not k or float(v or 0.0) <= 0:
+                    continue
+                src, _, reason = str(k).partition(":")
+                rows.append(
+                    {
+                        "source": src,
+                        "reason": reason or "unknown",
+                        "count": float(v),
+                        "pct": float(v) / float(total_c) if total_c > 0 else 0.0,
+                    }
+                )
+                if len(rows) >= 3:
+                    break
+            add_metric(
+                f"{prefix}.cancel_reasons_top",
+                float(total_c),
+                meta={"reasons": rows, "total_cancels": float(total_c)},
+            )
 
         session.add_all(metrics)
 

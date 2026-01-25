@@ -378,6 +378,9 @@ export const OpsPage: React.FC = () => {
             <a className="font-semibold text-brand-200 hover:underline" href="/ops/hero">
               Hero Clips →
             </a>
+            <a className="font-semibold text-brand-200 hover:underline" href="/ops/gestures">
+              Gestures →
+            </a>
             <a className="font-semibold text-brand-200 hover:underline" href="/ops/build-of-day">
               Build of Day →
             </a>

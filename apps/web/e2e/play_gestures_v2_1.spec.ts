@@ -36,6 +36,11 @@ test('play swipe pager + double-tap reaction (reduced motion)', async ({ page })
           hapticsEnabled: false,
         }),
       );
+      // Force attempt telemetry sampling ON for deterministic e2e assertions.
+      sessionStorage.setItem(
+        'neuroleague.play.gesture_attempt_sampling.v1',
+        JSON.stringify({ v: 1, sample_rate: 1, sampled: true, remaining: 999 }),
+      );
     } catch {
       // ignore
     }
