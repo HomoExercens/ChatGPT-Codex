@@ -25,10 +25,19 @@ type GestureMisfire = {
   cancel_reasons_top: GestureCancelReason[];
 };
 
+type GestureSampling = {
+  sessions_n: number;
+  attempts_n: number;
+  sample_rate_used: number;
+  cap_hit_rate: number;
+  avg_dropped_count: number;
+};
+
 type VariantSummary = {
   assigned: number;
   kpis: Record<string, MetricRow>;
   misfire: GestureMisfire;
+  sampling: GestureSampling;
 };
 
 type Guardrails = {
@@ -41,6 +50,7 @@ type Guardrails = {
 
 type GestureThresholdsExperimentSummary = {
   range: string;
+  segment: string;
   experiment_key: string;
   variants: Record<string, VariantSummary>;
   guardrails: Guardrails;
@@ -94,6 +104,7 @@ export const OpsGesturesPage: React.FC = () => {
   const qc = useQueryClient();
   const [adminToken, setAdminToken] = useState(loadAdminToken());
   const [range, setRange] = useState<'1d' | '7d'>('7d');
+  const [segment, setSegment] = useState<'all' | 'android_chrome' | 'android_twa' | 'desktop_chrome' | 'ios_safari' | 'ios_chrome'>('all');
 
   useEffect(() => {
     saveAdminToken(adminToken);
@@ -102,10 +113,10 @@ export const OpsGesturesPage: React.FC = () => {
   const enabled = Boolean(adminToken.trim());
 
   const { data, error, isFetching } = useQuery({
-    queryKey: ['ops', 'metrics', 'experiments', 'gesture_thresholds_v1_summary', range, enabled],
+    queryKey: ['ops', 'metrics', 'experiments', 'gesture_thresholds_v1_summary', range, segment, enabled],
     queryFn: () =>
       apiFetch<GestureThresholdsExperimentSummary>(
-        `/api/ops/metrics/experiments/gesture_thresholds_v1_summary?range=${encodeURIComponent(range)}`
+        `/api/ops/metrics/experiments/gesture_thresholds_v1_summary?range=${encodeURIComponent(range)}&segment=${encodeURIComponent(segment)}`
       ),
     enabled,
     staleTime: 10_000,
@@ -120,6 +131,30 @@ export const OpsGesturesPage: React.FC = () => {
   const hasVariants = variants.length > 0;
   const guardrails = data?.guardrails;
   const backlog = (guardrails?.render_jobs_queued ?? 0) + (guardrails?.render_jobs_running ?? 0);
+  const samplingSummary = useMemo(() => {
+    let sessions = 0;
+    let attempts = 0;
+    let capHitSessions = 0;
+    let droppedSum = 0;
+    let sampleRateSum = 0;
+    for (const [, v] of variants) {
+      const s = v?.sampling;
+      const sn = Number(s?.sessions_n ?? 0);
+      if (!Number.isFinite(sn) || sn <= 0) continue;
+      sessions += sn;
+      attempts += Number(s?.attempts_n ?? 0) || 0;
+      capHitSessions += (Number(s?.cap_hit_rate ?? 0) || 0) * sn;
+      droppedSum += (Number(s?.avg_dropped_count ?? 0) || 0) * sn;
+      sampleRateSum += (Number(s?.sample_rate_used ?? 0) || 0) * sn;
+    }
+    return {
+      sessions,
+      attempts,
+      cap_hit_rate: sessions > 0 ? capHitSessions / sessions : 0,
+      avg_dropped_count: sessions > 0 ? droppedSum / sessions : 0,
+      sample_rate_used: sessions > 0 ? sampleRateSum / sessions : 0,
+    };
+  }, [variants]);
 
   return (
     <div className="max-w-6xl mx-auto space-y-4" data-testid="ops-gestures-page">
@@ -170,9 +205,46 @@ export const OpsGesturesPage: React.FC = () => {
             </div>
 
             <div className="md:col-span-3 flex items-end gap-2">
-              <Button type="button" variant="secondary" onClick={() => qc.invalidateQueries({ queryKey: ['ops', 'metrics', 'experiments', 'gesture_thresholds_v1_summary'] })} className="w-full">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => qc.invalidateQueries({ queryKey: ['ops', 'metrics', 'experiments', 'gesture_thresholds_v1_summary'] })}
+                className="w-full"
+              >
                 Refresh
               </Button>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <div className="block text-xs font-bold text-muted uppercase tracking-wider">Segment</div>
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  ['all', 'All'],
+                  ['android_chrome', 'Android · Chrome'],
+                  ['android_twa', 'Android · TWA'],
+                  ['desktop_chrome', 'Desktop · Chrome'],
+                  ['ios_safari', 'iOS · Safari'],
+                  ['ios_chrome', 'iOS · Chrome'],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`h-11 px-3 rounded-2xl border text-xs font-extrabold transition-colors ${
+                    segment === id
+                      ? 'border-brand-500/35 bg-brand-500/12 text-fg shadow-glow-brand'
+                      : 'border-border/12 bg-surface-2/35 text-fg/80 hover:bg-surface-2/45'
+                  }`}
+                  onClick={() => setSegment(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="text-xs text-muted">
+              Segment is derived from user-agent + optional <span className="font-mono">X-App-Container</span> hint. If you see 0 samples, do not interpret misfire/KPI deltas.
             </div>
           </div>
 
@@ -195,6 +267,16 @@ export const OpsGesturesPage: React.FC = () => {
           ) : enabled ? (
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <Badge variant="neutral">guardrails —</Badge>
+            </div>
+          ) : null}
+
+          {enabled ? (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <Badge variant={samplingSummary.sessions > 0 ? 'neutral' : 'warning'}>sample sessions {fmtCount(samplingSummary.sessions)}</Badge>
+              <Badge variant={samplingSummary.sessions > 0 ? 'neutral' : 'warning'}>sample attempts {fmtCount(samplingSummary.attempts)}</Badge>
+              <Badge variant={misfireBadgeVariant(samplingSummary.cap_hit_rate)}>cap_hit {fmtPct(samplingSummary.cap_hit_rate)}</Badge>
+              <Badge variant="neutral">avg dropped {fmtCount(samplingSummary.avg_dropped_count)}</Badge>
+              <Badge variant="neutral">sample_rate {fmtPct(samplingSummary.sample_rate_used)}</Badge>
             </div>
           ) : null}
         </CardContent>
@@ -232,17 +314,22 @@ export const OpsGesturesPage: React.FC = () => {
             : variants.map(([vid, v]) => {
                 const k = v.kpis ?? {};
                 const mis = v.misfire ?? ({} as GestureMisfire);
+                const samp = v.sampling ?? ({} as GestureSampling);
                 const score = Number(mis.misfire_score ?? 0);
                 const label =
                   vid === 'control' ? 'Control' : vid === 'variant_a' ? 'Variant A' : vid === 'variant_b' ? 'Variant B' : vid;
 
                 const reasons = (mis.cancel_reasons_top ?? []).slice(0, 3);
+                const hasSample = Number(samp.sessions_n ?? 0) > 0;
                 return (
                   <Card key={vid} className="overflow-hidden">
                     <CardHeader>
                       <CardTitle className="flex items-center justify-between gap-3 text-base">
                         <span className="font-mono">{label}</span>
-                        <Badge variant={v.assigned < 50 ? 'warning' : 'neutral'}>assigned {v.assigned}</Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge variant={v.assigned < 50 ? 'warning' : 'neutral'}>sessions {v.assigned}</Badge>
+                          <Badge variant={hasSample ? 'neutral' : 'warning'}>sample {fmtCount(samp.sessions_n ?? 0)}</Badge>
+                        </div>
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -261,6 +348,25 @@ export const OpsGesturesPage: React.FC = () => {
                             </div>
                           </div>
                         ))}
+                      </div>
+
+                      <div className={`rounded-2xl border px-3 py-3 ${hasSample ? 'border-border/12 bg-surface-2/35' : 'border-warning-500/25 bg-warning-500/10'}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-[11px] font-bold text-muted uppercase">Sampling / Bias</div>
+                          <Badge variant={hasSample ? 'neutral' : 'warning'}>{hasSample ? 'ok' : 'no sample'}</Badge>
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted nl-tabular-nums">
+                          <div>sessions {fmtCount(samp.sessions_n ?? 0)}</div>
+                          <div>attempts {fmtCount(samp.attempts_n ?? 0)}</div>
+                          <div>cap_hit {fmtPct(samp.cap_hit_rate ?? 0)}</div>
+                          <div>avg dropped {fmtCount(samp.avg_dropped_count ?? 0)}</div>
+                          <div>sample_rate {fmtPct(samp.sample_rate_used ?? 0)}</div>
+                        </div>
+                        {!hasSample ? (
+                          <div className="mt-2 text-xs text-muted">
+                            No sampled sessions for this segment/window. Do not interpret misfire or KPI deltas.
+                          </div>
+                        ) : null}
                       </div>
 
                       <div className="rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">

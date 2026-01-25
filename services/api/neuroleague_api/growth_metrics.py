@@ -257,6 +257,7 @@ def rollup_growth_metrics(
                         # /play gesture ops (attempt telemetry; may be sampled).
                         "tap_attempt",
                         "swipe_attempt",
+                        "gesture_session_summary",
                     ]
                     + sorted(funnel_steps)
                 )
@@ -267,6 +268,7 @@ def rollup_growth_metrics(
         count_by_type: dict[str, int] = defaultdict(int)
         gesture_by_variant: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
         cancel_reasons_by_variant: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+        gesture_bias_by_variant: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
         for ev in events:
             count_by_type[str(ev.type)] += 1
             payload = _safe_payload(ev)
@@ -335,6 +337,55 @@ def rollup_growth_metrics(
                         reason = meta.get("cancel_reason")
                         reason_s = str(reason).strip() if isinstance(reason, str) and str(reason).strip() else "unknown"
                         cancel_reasons_by_variant[variant_id][f"tap:{reason_s}"] += float(weight)
+
+            # Gesture session summary (sampled): bias observability (cap hit / dropped gestures).
+            if str(ev.type) == "gesture_session_summary":
+                meta = payload.get("meta")
+                if not isinstance(meta, dict):
+                    continue
+                variant = meta.get("gesture_thresholds_variant")
+                variant_id = str(variant).strip() if isinstance(variant, str) else ""
+                if variant_id not in {"control", "variant_a", "variant_b"}:
+                    variant_id = "unknown"
+
+                gesture_bias_by_variant[variant_id]["sessions_n"] += 1.0
+
+                sr_raw = meta.get("sample_rate")
+                if sr_raw is None:
+                    sr_raw = meta.get("gesture_attempt_sample_rate")
+                try:
+                    sr = float(sr_raw) if sr_raw is not None else 0.0
+                except Exception:  # noqa: BLE001
+                    sr = 0.0
+                if 0.0 < sr <= 1.0:
+                    gesture_bias_by_variant[variant_id]["sample_rate_sum"] += float(sr)
+
+                cap_hit = meta.get("cap_hit")
+                cap_hit_bool = bool(cap_hit) if not isinstance(cap_hit, (int, float)) else int(cap_hit) == 1
+                if cap_hit_bool:
+                    gesture_bias_by_variant[variant_id]["cap_hit_sessions"] += 1.0
+
+                dropped_raw = meta.get("dropped_count")
+                if dropped_raw is None:
+                    dropped_raw = meta.get("gesture_attempt_dropped_count")
+                try:
+                    dropped = float(dropped_raw) if dropped_raw is not None else 0.0
+                except Exception:  # noqa: BLE001
+                    dropped = 0.0
+                if dropped > 0:
+                    gesture_bias_by_variant[variant_id]["dropped_sum"] += float(dropped)
+
+                try:
+                    tap_attempts = int(meta.get("tap_attempts") or 0)
+                except Exception:  # noqa: BLE001
+                    tap_attempts = 0
+                try:
+                    swipe_attempts = int(meta.get("swipe_attempts") or 0)
+                except Exception:  # noqa: BLE001
+                    swipe_attempts = 0
+                gesture_bias_by_variant[variant_id]["attempts_n"] += float(
+                    max(0, tap_attempts) + max(0, swipe_attempts)
+                )
 
         # Global match KPIs (ranked, all users) for this day.
         total_matches = int(
@@ -613,6 +664,34 @@ def rollup_growth_metrics(
                 f"{prefix}.cancel_reasons_top",
                 float(total_c),
                 meta={"reasons": rows, "total_cancels": float(total_c)},
+            )
+
+            # Bias observability from per-session summary (not weighted; sample size matters).
+            b = gesture_bias_by_variant.get(variant_id) or {}
+            sessions_n = float(b.get("sessions_n") or 0.0)
+            cap_hit_sessions = float(b.get("cap_hit_sessions") or 0.0)
+            dropped_sum = float(b.get("dropped_sum") or 0.0)
+            attempts_n = float(b.get("attempts_n") or 0.0)
+            sample_rate_sum = float(b.get("sample_rate_sum") or 0.0)
+            cap_hit_rate = cap_hit_sessions / sessions_n if sessions_n > 0 else 0.0
+            avg_dropped = dropped_sum / sessions_n if sessions_n > 0 else 0.0
+            sample_rate_used = sample_rate_sum / sessions_n if sessions_n > 0 else 0.0
+            add_metric(f"{prefix}.sessions_n", float(sessions_n))
+            add_metric(f"{prefix}.attempts_n", float(attempts_n))
+            add_metric(
+                f"{prefix}.cap_hit_rate",
+                float(cap_hit_rate),
+                meta={"cap_hit_sessions": float(cap_hit_sessions), "sessions_n": float(sessions_n)},
+            )
+            add_metric(
+                f"{prefix}.avg_dropped_count",
+                float(avg_dropped),
+                meta={"dropped_sum": float(dropped_sum), "sessions_n": float(sessions_n)},
+            )
+            add_metric(
+                f"{prefix}.sample_rate_used",
+                float(sample_rate_used),
+                meta={"sample_rate_sum": float(sample_rate_sum), "sessions_n": float(sessions_n)},
             )
 
         session.add_all(metrics)

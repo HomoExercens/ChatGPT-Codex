@@ -55,6 +55,17 @@ def test_ops_metrics_endpoints_shape(api_client) -> None:
     assert isinstance(j3b.get("variants"), dict)
     assert isinstance(j3b.get("guardrails"), dict)
 
+    r3c = api_client.get(
+        "/api/ops/metrics/experiments/gesture_thresholds_v1_summary?range=7d&segment=all",
+        headers=headers,
+    )
+    assert r3c.status_code == 200
+    j3c = r3c.json()
+    assert j3c.get("experiment_key") == "gesture_thresholds_v1"
+    assert j3c.get("segment") == "all"
+    assert isinstance(j3c.get("variants"), dict)
+    assert isinstance(j3c.get("guardrails"), dict)
+
     r4 = api_client.post("/api/ops/metrics/rollup?range=7d", headers=headers)
     assert r4.status_code == 200
     j4 = r4.json()

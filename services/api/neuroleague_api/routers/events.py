@@ -45,6 +45,7 @@ EventType = Literal[
     "swipe_next",
     "swipe_prev",
     "double_tap_reaction",
+    "gesture_session_summary",
     "chrome_autohide_shown",
     "chrome_autohide_hidden",
     "unmute_click",

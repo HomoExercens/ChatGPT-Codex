@@ -49,6 +49,68 @@ def session_id_from_request(request: Request | None) -> str | None:
     return value[:80] if value else None
 
 
+def app_container_from_request(request: Request | None) -> str | None:
+    """
+    Optional app container hint (client-provided). Used for ops segmentation only.
+
+    Examples:
+    - "twa" (Android Trusted Web Activity)
+    - "chrome"
+    - "safari"
+    """
+    if request is None:
+        return None
+    raw = str(request.headers.get("x-app-container") or "").strip().lower()
+    if raw in {"twa", "chrome", "safari"}:
+        return raw
+    return None
+
+
+def _ua_platform_container(*, ua: str, container_hint: str | None) -> tuple[str, str]:
+    ua_l = str(ua or "").lower()
+
+    platform = "unknown"
+    if "android" in ua_l:
+        platform = "android"
+    elif "iphone" in ua_l or "ipad" in ua_l or "ipod" in ua_l:
+        platform = "ios"
+    else:
+        platform = "desktop"
+
+    if container_hint in {"twa", "chrome", "safari"}:
+        return platform, container_hint
+
+    # Container detection (best-effort; UA-only).
+    if platform == "ios":
+        if "crios" in ua_l:
+            return platform, "chrome"
+        if "safari" in ua_l:
+            return platform, "safari"
+        return platform, "unknown"
+
+    if "chrome/" in ua_l or "chromium" in ua_l:
+        return platform, "chrome"
+    return platform, "unknown"
+
+
+def _ua_segment(*, platform: str, container: str) -> str:
+    p = str(platform or "").strip().lower()
+    c = str(container or "").strip().lower()
+    if p == "android" and c == "twa":
+        return "android_twa"
+    if p == "android" and c == "chrome":
+        return "android_chrome"
+    if p == "desktop" and c == "chrome":
+        return "desktop_chrome"
+    if p == "ios" and c == "safari":
+        return "ios_safari"
+    if p == "ios" and c == "chrome":
+        return "ios_chrome"
+    if p in {"android", "ios", "desktop"} and c in {"twa", "chrome", "safari"}:
+        return f"{p}_{c}"
+    return "unknown"
+
+
 def utm_from_request(request: Request | None) -> dict[str, str]:
     if request is None:
         return {}
@@ -105,6 +167,18 @@ def log_event(
         utm = utm_from_request(request)
         if utm:
             p.setdefault("utm", utm)
+        # Best-effort UA segmentation for ops/experiments (do not trust client meta).
+        try:
+            ua = str(request.headers.get("user-agent") or "")
+            container_hint = app_container_from_request(request)
+            platform, container = _ua_platform_container(
+                ua=ua, container_hint=container_hint
+            )
+            p["ua_platform"] = platform
+            p["ua_container"] = container
+            p["ua_segment"] = _ua_segment(platform=platform, container=container)
+        except Exception:  # noqa: BLE001
+            pass
 
     ev = Event(
         id=f"ev_{uuid4().hex}",

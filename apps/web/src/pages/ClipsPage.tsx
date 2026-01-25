@@ -485,74 +485,226 @@ export const ClipsPage: React.FC = () => {
     sample_rate: number;
     sampled: boolean;
     remaining: number;
+    cap_hit: boolean;
+    dropped_count: number;
   };
 
-  const takeGestureAttemptToken = React.useCallback((): { ok: boolean; meta?: Record<string, unknown> } => {
+  function parseGestureAttemptSamplingState(raw: string): GestureAttemptSamplingState | null {
+    try {
+      const parsed = JSON.parse(raw) as Partial<GestureAttemptSamplingState>;
+      if (
+        !parsed ||
+        parsed.v !== 1 ||
+        typeof parsed.sample_rate !== 'number' ||
+        !Number.isFinite(parsed.sample_rate) ||
+        typeof parsed.sampled !== 'boolean' ||
+        typeof parsed.remaining !== 'number' ||
+        !Number.isFinite(parsed.remaining)
+      ) {
+        return null;
+      }
+      return {
+        v: 1,
+        sample_rate: Math.max(0, Math.min(1, parsed.sample_rate)),
+        sampled: Boolean(parsed.sampled),
+        remaining: Math.max(0, Math.min(999, Math.round(parsed.remaining))),
+        cap_hit: Boolean((parsed as any).cap_hit ?? false),
+        dropped_count: Math.max(0, Math.min(99_999, Math.round(Number((parsed as any).dropped_count ?? 0) || 0))),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  const getOrInitGestureAttemptSamplingState = React.useCallback((): GestureAttemptSamplingState => {
     const ss = typeof sessionStorage !== 'undefined' ? sessionStorage : undefined;
     const ls = typeof localStorage !== 'undefined' ? localStorage : undefined;
 
     const raw = safeGetStorage(ss, GESTURE_ATTEMPT_SAMPLING_KEY);
-    let state: GestureAttemptSamplingState | null = null;
     if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as Partial<GestureAttemptSamplingState>;
-        if (
-          parsed &&
-          parsed.v === 1 &&
-          typeof parsed.sample_rate === 'number' &&
-          Number.isFinite(parsed.sample_rate) &&
-          typeof parsed.sampled === 'boolean' &&
-          typeof parsed.remaining === 'number' &&
-          Number.isFinite(parsed.remaining)
-        ) {
-          state = {
-            v: 1,
-            sample_rate: Math.max(0, Math.min(1, parsed.sample_rate)),
-            sampled: Boolean(parsed.sampled),
-            remaining: Math.max(0, Math.min(999, Math.round(parsed.remaining))),
-          };
-        }
-      } catch {
-        state = null;
-      }
+      const parsed = parseGestureAttemptSamplingState(raw);
+      if (parsed) return parsed;
     }
 
-    if (!state) {
-      const sampleRate = Math.max(0, Math.min(1, GESTURE_ATTEMPT_SAMPLE_RATE));
-      const sessionId =
-        (safeGetStorage(ss, 'neuroleague.session_id') ?? safeGetStorage(ls, 'neuroleague.session_id') ?? '').trim() ||
-        (safeGetStorage(ls, 'neuroleague.device_id') ?? '').trim();
-      const r = sessionId ? (hashU32(`gesture_attempts:${sessionId}`) % 10_000) / 10_000 : Math.random();
-      const sampled = sampleRate >= 1 ? true : r < sampleRate;
-      state = { v: 1, sample_rate: sampleRate, sampled, remaining: GESTURE_ATTEMPT_SESSION_CAP };
-    }
+    const sampleRate = Math.max(0, Math.min(1, GESTURE_ATTEMPT_SAMPLE_RATE));
+    const sessionId =
+      (safeGetStorage(ss, 'neuroleague.session_id') ?? safeGetStorage(ls, 'neuroleague.session_id') ?? '').trim() ||
+      (safeGetStorage(ls, 'neuroleague.device_id') ?? '').trim();
+    const r = sessionId ? (hashU32(`gesture_attempts:${sessionId}`) % 10_000) / 10_000 : Math.random();
+    const sampled = sampleRate >= 1 ? true : r < sampleRate;
+    const next: GestureAttemptSamplingState = {
+      v: 1,
+      sample_rate: sampleRate,
+      sampled,
+      remaining: GESTURE_ATTEMPT_SESSION_CAP,
+      cap_hit: false,
+      dropped_count: 0,
+    };
+    safeSetStorage(ss, GESTURE_ATTEMPT_SAMPLING_KEY, JSON.stringify(next));
+    return next;
+  }, []);
 
+  const writeGestureAttemptSamplingState = React.useCallback((state: GestureAttemptSamplingState) => {
+    const ss = typeof sessionStorage !== 'undefined' ? sessionStorage : undefined;
     safeSetStorage(ss, GESTURE_ATTEMPT_SAMPLING_KEY, JSON.stringify(state));
+  }, []);
 
-    if (!state.sampled) return { ok: false };
-    if (state.remaining <= 0) return { ok: false };
+  const takeGestureAttemptToken = React.useCallback((): {
+    ok: boolean;
+    reason?: 'not_sampled' | 'cap_hit';
+    state: GestureAttemptSamplingState;
+    meta?: Record<string, unknown>;
+  } => {
+    const ss = typeof sessionStorage !== 'undefined' ? sessionStorage : undefined;
+    const raw = safeGetStorage(ss, GESTURE_ATTEMPT_SAMPLING_KEY);
+    const state = raw ? parseGestureAttemptSamplingState(raw) ?? getOrInitGestureAttemptSamplingState() : getOrInitGestureAttemptSamplingState();
+
+    // persist canonical state (in case of legacy shape)
+    writeGestureAttemptSamplingState(state);
+
+    if (!state.sampled) {
+      return { ok: false, reason: 'not_sampled', state };
+    }
+
+    if (state.remaining <= 0) {
+      // We intentionally do not emit the event. Count it as dropped due to cap so we can surface bias in session_summary.
+      state.cap_hit = true;
+      state.dropped_count += 1;
+      writeGestureAttemptSamplingState(state);
+      return { ok: false, reason: 'cap_hit', state };
+    }
 
     state.remaining -= 1;
-    safeSetStorage(ss, GESTURE_ATTEMPT_SAMPLING_KEY, JSON.stringify(state));
+    if (state.remaining <= 0) state.cap_hit = true;
+    writeGestureAttemptSamplingState(state);
 
     return {
       ok: true,
+      state,
       meta: {
+        // v2.1.4 bias observability (requested names)
+        sample_rate: state.sample_rate,
+        cap: GESTURE_ATTEMPT_SESSION_CAP,
+        cap_hit: state.cap_hit,
+        dropped_count: state.dropped_count,
+        // keep legacy names for backwards compatibility / rollup weighting
         gesture_attempt_sample_rate: state.sample_rate,
         gesture_attempt_sampled: 1,
         gesture_attempt_session_cap: GESTURE_ATTEMPT_SESSION_CAP,
         gesture_attempt_session_remaining: state.remaining,
+        gesture_attempt_cap_hit: state.cap_hit ? 1 : 0,
+        gesture_attempt_dropped_count: state.dropped_count,
       },
     };
-  }, []);
+  }, [getOrInitGestureAttemptSamplingState, writeGestureAttemptSamplingState]);
+
+  type GestureSessionSummary = {
+    tap_attempts: number;
+    tap_cancels: number;
+    swipe_attempts: number;
+    swipe_commits: number;
+    swipe_cancels: number;
+    cancel_reasons: Record<string, number>;
+  };
+
+  const gestureSessionSummaryRef = useRef<GestureSessionSummary>({
+    tap_attempts: 0,
+    tap_cancels: 0,
+    swipe_attempts: 0,
+    swipe_commits: 0,
+    swipe_cancels: 0,
+    cancel_reasons: {},
+  });
 
   const trackGestureAttempt = React.useCallback(
     (type: 'tap_attempt' | 'swipe_attempt', meta: Record<string, unknown>) => {
+      // Always update session aggregates (even if attempt events are sampled/capped).
+      const agg = gestureSessionSummaryRef.current;
+      if (type === 'swipe_attempt') {
+        agg.swipe_attempts += 1;
+        const committed = Number(meta?.committed ?? 0) === 1;
+        if (committed) agg.swipe_commits += 1;
+        else agg.swipe_cancels += 1;
+        const reason = String(meta?.cancel_reason ?? '').trim() || (committed ? '' : 'unknown');
+        if (reason) agg.cancel_reasons[`swipe:${reason}`] = (agg.cancel_reasons[`swipe:${reason}`] ?? 0) + 1;
+      }
+      if (type === 'tap_attempt') {
+        agg.tap_attempts += 1;
+        const canceled = Number(meta?.canceled ?? 0) === 1;
+        if (canceled) agg.tap_cancels += 1;
+        const reason = String(meta?.cancel_reason ?? '').trim() || (canceled ? 'unknown' : '');
+        if (reason) agg.cancel_reasons[`tap:${reason}`] = (agg.cancel_reasons[`tap:${reason}`] ?? 0) + 1;
+      }
+
       const tok = takeGestureAttemptToken();
       if (!tok.ok) return;
       trackPlayUiEvent(type, { ...(tok.meta ?? {}), ...(meta ?? {}) });
     },
     [takeGestureAttemptToken, trackPlayUiEvent]
+  );
+
+  const gestureSessionSummarySent = useRef(false);
+  const trackPlayUiEventKeepalive = React.useCallback(
+    (type: string, meta?: Record<string, unknown>) => {
+      apiFetch('/api/events/track', {
+        method: 'POST',
+        keepalive: true,
+        body: JSON.stringify({
+          type,
+          source: 'play',
+          meta: {
+            mode,
+            sort,
+            feed_algo: feedAlgo,
+            hero_variant: heroFeedVariant,
+            gesture_thresholds_variant: gestureThresholdVariant,
+            ...(meta ?? {}),
+          },
+        }),
+      }).catch(() => {
+        // best-effort
+      });
+    },
+    [feedAlgo, gestureThresholdVariant, heroFeedVariant, mode, sort]
+  );
+
+  const flushGestureSessionSummary = React.useCallback(
+    (reason: string) => {
+      if (gestureSessionSummarySent.current) return;
+      gestureSessionSummarySent.current = true;
+
+      const state = getOrInitGestureAttemptSamplingState();
+      // Keep session_summary under the same sampling gate for cost control.
+      if (!state.sampled) return;
+
+      const agg = gestureSessionSummaryRef.current;
+      const reasons = Object.entries(agg.cancel_reasons)
+        .map(([k, v]) => ({ k, v }))
+        .filter((r) => r.k && Number.isFinite(r.v) && r.v > 0)
+        .sort((a, b) => b.v - a.v || a.k.localeCompare(b.k))
+        .slice(0, 12)
+        .map((r) => {
+          const [source, rest] = r.k.split(':', 2);
+          return { source: source || 'unknown', reason: rest || 'unknown', count: r.v };
+        });
+
+      trackPlayUiEventKeepalive('gesture_session_summary', {
+        reason,
+        // bias observability
+        sample_rate: state.sample_rate,
+        cap: GESTURE_ATTEMPT_SESSION_CAP,
+        cap_hit: state.cap_hit,
+        dropped_count: state.dropped_count,
+        // aggregates (scale-proof; allows future per-session rollups)
+        swipe_attempts: agg.swipe_attempts,
+        swipe_commits: agg.swipe_commits,
+        swipe_cancels: agg.swipe_cancels,
+        tap_attempts: agg.tap_attempts,
+        tap_cancels: agg.tap_cancels,
+        cancel_reasons: reasons,
+      });
+    },
+    [getOrInitGestureAttemptSamplingState, trackPlayUiEventKeepalive]
   );
 
   const autoHideTimer = useRef<number | null>(null);
@@ -828,17 +980,22 @@ export const ClipsPage: React.FC = () => {
   useEffect(() => {
     if (playOpenTracked.current) return;
     playOpenTracked.current = true;
-    apiFetch('/api/events/track', {
-      method: 'POST',
-      body: JSON.stringify({
-        type: 'play_open',
-        source: 'play',
-        meta: { mode, sort, feed_algo: feedAlgo, hero_variant: heroFeedVariant },
-      }),
-    }).catch(() => {
-      // best-effort
-    });
-  }, [feedAlgo, heroFeedVariant, mode, sort]);
+    trackPlayUiEvent('play_open');
+  }, [trackPlayUiEvent]);
+
+  useEffect(() => {
+    const onPageHide = () => flushGestureSessionSummary('pagehide');
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flushGestureSessionSummary('hidden');
+    };
+    window.addEventListener('pagehide', onPageHide);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('pagehide', onPageHide);
+      document.removeEventListener('visibilitychange', onVisibility);
+      flushGestureSessionSummary('unmount');
+    };
+  }, [flushGestureSessionSummary]);
 
   useEffect(() => {
     const item = clips[activeIndex];
@@ -850,7 +1007,7 @@ export const ClipsPage: React.FC = () => {
       trackEventMutation.mutate({
         replayId: item.replay_id,
         type: 'view',
-        meta: { surface: 'play', mode, sort, feed_algo: feedAlgo },
+        meta: { surface: 'play', mode, sort, feed_algo: feedAlgo, gesture_thresholds_variant: gestureThresholdVariant },
       });
     }
 
@@ -868,7 +1025,14 @@ export const ClipsPage: React.FC = () => {
         trackEventMutation.mutate({
           replayId: item.replay_id,
           type: 'view',
-          meta: { surface: 'play', mode, sort, feed_algo: feedAlgo, watched_ms: watchedMs },
+          meta: {
+            surface: 'play',
+            mode,
+            sort,
+            feed_algo: feedAlgo,
+            gesture_thresholds_variant: gestureThresholdVariant,
+            watched_ms: watchedMs,
+          },
         });
       }, 3000);
     }

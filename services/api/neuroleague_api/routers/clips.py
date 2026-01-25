@@ -887,21 +887,19 @@ def track_event(
         )
 
     # Non-like events are append-only and aggregated for trending.
-    ev = Event(
-        id=f"ev_{uuid4().hex}",
-        user_id=user_id,
+    ev = log_event(
+        db,
         type=event_type,
-        payload_json=orjson.dumps(
-            {
-                "replay_id": replay_id,
-                "match_id": replay.match_id,
-                "source": req.source,
-                "meta": req.meta,
-            }
-        ).decode("utf-8"),
-        created_at=now,
+        user_id=user_id,
+        request=request,
+        payload={
+            "replay_id": replay_id,
+            "match_id": replay.match_id,
+            "source": req.source,
+            "meta": req.meta,
+        },
+        now=now,
     )
-    db.add(ev)
     try:
         from neuroleague_api.quests_engine import apply_event_to_quests
 
@@ -910,21 +908,19 @@ def track_event(
         pass
 
     if req.type == "share":
-        ev2 = Event(
-            id=f"ev_{uuid4().hex}",
-            user_id=user_id,
+        ev2 = log_event(
+            db,
             type="share_action",
-            payload_json=orjson.dumps(
-                {
-                    "replay_id": replay_id,
-                    "match_id": replay.match_id,
-                    "source": req.source,
-                    "meta": req.meta,
-                }
-            ).decode("utf-8"),
-            created_at=now,
+            user_id=user_id,
+            request=request,
+            payload={
+                "replay_id": replay_id,
+                "match_id": replay.match_id,
+                "source": req.source,
+                "meta": req.meta,
+            },
+            now=now,
         )
-        db.add(ev2)
         try:
             from neuroleague_api.quests_engine import apply_event_to_quests
 

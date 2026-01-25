@@ -1524,14 +1524,24 @@ class GestureMisfireOut(BaseModel):
     cancel_reasons_top: list[GestureCancelReasonOut] = Field(default_factory=list)
 
 
+class GestureSamplingOut(BaseModel):
+    sessions_n: int = 0
+    attempts_n: int = 0
+    sample_rate_used: float = 0.0
+    cap_hit_rate: float = 0.0
+    avg_dropped_count: float = 0.0
+
+
 class GestureThresholdsVariantSummaryOut(BaseModel):
-    assigned: int = 0
+    assigned: int = 0  # sessions in window (segment-filtered)
     kpis: dict[str, dict[str, float | int]] = Field(default_factory=dict)
     misfire: GestureMisfireOut = Field(default_factory=GestureMisfireOut)
+    sampling: GestureSamplingOut = Field(default_factory=GestureSamplingOut)
 
 
 class GestureThresholdsExperimentSummaryOut(BaseModel):
     range: str
+    segment: str = "all"
     experiment_key: str = "gesture_thresholds_v1"
     variants: dict[str, GestureThresholdsVariantSummaryOut] = Field(default_factory=dict)
     guardrails: HeroFeedGuardrailsOut = Field(default_factory=HeroFeedGuardrailsOut)
@@ -1543,19 +1553,26 @@ class GestureThresholdsExperimentSummaryOut(BaseModel):
 )
 def gesture_thresholds_v1_summary(
     range: str = "7d",
+    segment: str = "all",
     x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
     db: Session = DBSession,
 ) -> GestureThresholdsExperimentSummaryOut:
     _require_admin(x_admin_token)
     days = _parse_days(range)
+    segment_id = str(segment or "all").strip().lower()
+    allowed_segments = {
+        "all",
+        "android_twa",
+        "android_chrome",
+        "desktop_chrome",
+        "ios_safari",
+        "ios_chrome",
+        "unknown",
+    }
+    if segment_id not in allowed_segments:
+        raise HTTPException(status_code=400, detail="invalid_segment")
     now = datetime.now(UTC)
     cutoff = now - timedelta(days=int(days))
-
-    stats = load_experiment_stats(
-        db, experiment_keys=["gesture_thresholds_v1"], days=int(days)
-    )
-    exp = stats[0] if stats and isinstance(stats[0], dict) else {}
-    variants_in = exp.get("variants") if isinstance(exp.get("variants"), list) else []
 
     kpi_keys = [
         "clip_view_3s",
@@ -1565,36 +1582,34 @@ def gesture_thresholds_v1_summary(
     ]
 
     variants_out: dict[str, GestureThresholdsVariantSummaryOut] = {}
-    for v in variants_in:
-        if not isinstance(v, dict):
-            continue
-        vid = str(v.get("id") or "control")
-        assigned = int(v.get("assigned") or 0)
-        kpis_raw = v.get("kpis") if isinstance(v.get("kpis"), dict) else {}
-        kpis_filtered: dict[str, dict[str, float | int]] = {}
-        for k in kpi_keys:
-            row = kpis_raw.get(k) if isinstance(kpis_raw.get(k), dict) else None
-            if not row:
-                kpis_filtered[k] = {"converted": 0, "rate": 0.0}
-                continue
-            kpis_filtered[k] = {
-                "converted": int(row.get("converted") or 0),
-                "rate": float(row.get("rate") or 0.0),
-            }
+    for vid in ("control", "variant_a", "variant_b", "unknown"):
         variants_out[vid] = GestureThresholdsVariantSummaryOut(
-            assigned=assigned,
-            kpis=kpis_filtered,
+            assigned=0,
+            kpis={k: {"converted": 0, "rate": 0.0} for k in kpi_keys},
             misfire=GestureMisfireOut(),
+            sampling=GestureSamplingOut(),
         )
 
-    # Aggregate attempt telemetry (sampled) for misfire/cancel reasons.
+    # Scan events for segment-filtered session KPIs + gesture telemetry.
+    event_types = [
+        "play_open",
+        "clip_view",
+        "beat_this_click",
+        "match_done",
+        "reply_clip_shared",
+        "video_load_fail",
+        "swipe_attempt",
+        "tap_attempt",
+        "gesture_session_summary",
+    ]
     evs = db.scalars(
         select(Event)
         .where(Event.created_at >= cutoff)
-        .where(Event.type.in_(["swipe_attempt", "tap_attempt"]))
+        .where(Event.type.in_(event_types))
         .order_by(Event.created_at)
     ).all()
 
+    # Aggregate attempt telemetry (sampled) for misfire/cancel reasons.
     def parse_payload(ev: Event) -> dict[str, Any]:
         try:
             obj = orjson.loads((ev.payload_json or "{}").encode("utf-8"))
@@ -1602,49 +1617,142 @@ def gesture_thresholds_v1_summary(
             return {}
         return obj if isinstance(obj, dict) else {}
 
+    session_variant: dict[str, str] = {}
+    sessions_by_variant: dict[str, set[str]] = defaultdict(set)
+    kpi_sessions: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
+
     by_variant: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     reasons: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    sampling: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    video_load_fail_events_seg = 0
 
     for ev in evs:
         payload = parse_payload(ev)
+        if segment_id != "all":
+            seg = payload.get("ua_segment")
+            seg_s = str(seg).strip().lower() if isinstance(seg, str) else "unknown"
+            if seg_s != segment_id:
+                continue
         meta = payload.get("meta")
         if not isinstance(meta, dict):
             continue
+        sess = payload.get("session_id")
+        session_id = str(sess).strip() if isinstance(sess, str) and str(sess).strip() else ""
+
+        if str(ev.type) == "video_load_fail":
+            video_load_fail_events_seg += 1
+
         variant = meta.get("gesture_thresholds_variant")
         variant_id = str(variant).strip() if isinstance(variant, str) else ""
         if variant_id not in {"control", "variant_a", "variant_b"}:
+            variant_id = ""
+        if not variant_id and session_id and session_id in session_variant:
+            variant_id = session_variant[session_id]
+        if variant_id not in {"control", "variant_a", "variant_b"}:
             variant_id = "unknown"
 
-        sr_raw = meta.get("gesture_attempt_sample_rate")
-        try:
-            sr = float(sr_raw) if sr_raw is not None else 1.0
-        except Exception:  # noqa: BLE001
-            sr = 1.0
-        if not (0.0 < sr <= 1.0):
-            sr = 1.0
-        w = 1.0 / float(sr) if sr > 0 else 1.0
+        # Session-level KPIs (denominator = play_open sessions).
+        if str(ev.type) == "play_open" and session_id:
+            session_variant.setdefault(session_id, variant_id)
+            sessions_by_variant[variant_id].add(session_id)
 
-        if str(ev.type) == "swipe_attempt":
-            by_variant[variant_id]["swipe_attempt_count"] += w
-            committed = int(meta.get("committed") or 0)
-            if committed == 1:
-                by_variant[variant_id]["swipe_commit_count"] += w
-            else:
-                by_variant[variant_id]["swipe_cancel_count"] += w
-                reason = meta.get("cancel_reason")
-                rs = str(reason).strip() if isinstance(reason, str) and str(reason).strip() else "unknown"
-                reasons[variant_id][f"swipe:{rs}"] += w
+        if session_id and session_id in sessions_by_variant.get(variant_id, set()):
+            if str(ev.type) == "beat_this_click":
+                kpi_sessions["beat_this_click"][variant_id].add(session_id)
+            if str(ev.type) == "match_done":
+                kpi_sessions["match_done"][variant_id].add(session_id)
+            if str(ev.type) == "reply_clip_shared":
+                kpi_sessions["reply_clip_shared"][variant_id].add(session_id)
+            if str(ev.type) == "clip_view":
+                raw_w = meta.get("watched_ms")
+                try:
+                    watched_ms = int(raw_w) if raw_w is not None else 0
+                except Exception:  # noqa: BLE001
+                    watched_ms = 0
+                if watched_ms >= 3000:
+                    kpi_sessions["clip_view_3s"][variant_id].add(session_id)
 
-        if str(ev.type) == "tap_attempt":
-            by_variant[variant_id]["tap_attempt_count"] += w
-            canceled = int(meta.get("canceled") or 0)
-            if canceled == 1:
-                by_variant[variant_id]["tap_cancel_count"] += w
-                reason = meta.get("cancel_reason")
-                rs = str(reason).strip() if isinstance(reason, str) and str(reason).strip() else "unknown"
-                reasons[variant_id][f"tap:{rs}"] += w
+        # Gesture attempt telemetry (sampled) for misfire/cancel reasons.
+        if str(ev.type) in {"swipe_attempt", "tap_attempt"}:
+            sr_raw = meta.get("sample_rate")
+            if sr_raw is None:
+                sr_raw = meta.get("gesture_attempt_sample_rate")
+            try:
+                sr = float(sr_raw) if sr_raw is not None else 1.0
+            except Exception:  # noqa: BLE001
+                sr = 1.0
+            if not (0.0 < sr <= 1.0):
+                sr = 1.0
+            w = 1.0 / float(sr) if sr > 0 else 1.0
+
+            if str(ev.type) == "swipe_attempt":
+                by_variant[variant_id]["swipe_attempt_count"] += w
+                committed = int(meta.get("committed") or 0)
+                if committed == 1:
+                    by_variant[variant_id]["swipe_commit_count"] += w
+                else:
+                    by_variant[variant_id]["swipe_cancel_count"] += w
+                    reason = meta.get("cancel_reason")
+                    rs = str(reason).strip() if isinstance(reason, str) and str(reason).strip() else "unknown"
+                    reasons[variant_id][f"swipe:{rs}"] += w
+
+            if str(ev.type) == "tap_attempt":
+                by_variant[variant_id]["tap_attempt_count"] += w
+                canceled = int(meta.get("canceled") or 0)
+                if canceled == 1:
+                    by_variant[variant_id]["tap_cancel_count"] += w
+                    reason = meta.get("cancel_reason")
+                    rs = str(reason).strip() if isinstance(reason, str) and str(reason).strip() else "unknown"
+                    reasons[variant_id][f"tap:{rs}"] += w
+
+        # Gesture session summary (sampled): bias observability (cap/dropped) + sample sizes.
+        if str(ev.type) == "gesture_session_summary":
+            sampling[variant_id]["sessions_n"] += 1.0
+            sr_raw = meta.get("sample_rate")
+            if sr_raw is None:
+                sr_raw = meta.get("gesture_attempt_sample_rate")
+            try:
+                sr = float(sr_raw) if sr_raw is not None else 0.0
+            except Exception:  # noqa: BLE001
+                sr = 0.0
+            if 0.0 < sr <= 1.0:
+                sampling[variant_id]["sample_rate_sum"] += float(sr)
+
+            cap_hit = meta.get("cap_hit")
+            cap_hit_bool = bool(cap_hit) if not isinstance(cap_hit, (int, float)) else int(cap_hit) == 1
+            if cap_hit_bool:
+                sampling[variant_id]["cap_hit_sessions"] += 1.0
+
+            dropped_raw = meta.get("dropped_count")
+            if dropped_raw is None:
+                dropped_raw = meta.get("gesture_attempt_dropped_count")
+            try:
+                dropped = float(dropped_raw) if dropped_raw is not None else 0.0
+            except Exception:  # noqa: BLE001
+                dropped = 0.0
+            if dropped > 0:
+                sampling[variant_id]["dropped_sum"] += float(dropped)
+
+            try:
+                tap_attempts = int(meta.get("tap_attempts") or 0)
+            except Exception:  # noqa: BLE001
+                tap_attempts = 0
+            try:
+                swipe_attempts = int(meta.get("swipe_attempts") or 0)
+            except Exception:  # noqa: BLE001
+                swipe_attempts = 0
+            sampling[variant_id]["attempts_n"] += float(max(0, tap_attempts) + max(0, swipe_attempts))
 
     for vid, out in variants_out.items():
+        sessions_total = len(sessions_by_variant.get(vid, set()))
+        out.assigned = int(sessions_total)
+        for k in kpi_keys:
+            converted = len(kpi_sessions.get(k, {}).get(vid, set()))
+            out.kpis[k] = {
+                "converted": int(converted),
+                "rate": float(converted) / float(sessions_total) if sessions_total > 0 else 0.0,
+            }
+
         g = by_variant.get(vid) or {}
         swipe_attempt = float(g.get("swipe_attempt_count") or 0.0)
         swipe_commit = float(g.get("swipe_commit_count") or 0.0)
@@ -1683,6 +1791,20 @@ def gesture_thresholds_v1_summary(
             cancel_reasons_top=top,
         )
 
+        s = sampling.get(vid) or {}
+        sessions_n = int(s.get("sessions_n") or 0)
+        attempts_n = int(s.get("attempts_n") or 0)
+        cap_hit_sessions = float(s.get("cap_hit_sessions") or 0.0)
+        dropped_sum = float(s.get("dropped_sum") or 0.0)
+        sr_sum = float(s.get("sample_rate_sum") or 0.0)
+        out.sampling = GestureSamplingOut(
+            sessions_n=sessions_n,
+            attempts_n=attempts_n,
+            sample_rate_used=(sr_sum / float(sessions_n)) if sessions_n > 0 else 0.0,
+            cap_hit_rate=(cap_hit_sessions / float(sessions_n)) if sessions_n > 0 else 0.0,
+            avg_dropped_count=(dropped_sum / float(sessions_n)) if sessions_n > 0 else 0.0,
+        )
+
     http_5xx = int(
         db.scalar(
             select(func.count(HttpErrorEvent.id))
@@ -1700,12 +1822,7 @@ def gesture_thresholds_v1_summary(
         or 0
     )
     video_load_fail_events = int(
-        db.scalar(
-            select(func.count(Event.id))
-            .where(Event.created_at >= cutoff)
-            .where(Event.type == "video_load_fail")
-        )
-        or 0
+        video_load_fail_events_seg
     )
 
     queued = int(
@@ -1719,6 +1836,7 @@ def gesture_thresholds_v1_summary(
 
     return GestureThresholdsExperimentSummaryOut(
         range=f"{days}d",
+        segment=segment_id,
         variants=variants_out,
         guardrails=HeroFeedGuardrailsOut(
             http_5xx=http_5xx,
