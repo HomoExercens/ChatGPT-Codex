@@ -62,4 +62,4 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 
-(cd "${ROOT_DIR}/apps/web" && npx playwright test)
+(cd "${ROOT_DIR}/apps/web" && npx playwright test --workers=1)

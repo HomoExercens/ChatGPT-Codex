@@ -65,6 +65,13 @@ def test_ops_metrics_endpoints_shape(api_client) -> None:
     assert j3c.get("segment") == "all"
     assert isinstance(j3c.get("variants"), dict)
     assert isinstance(j3c.get("guardrails"), dict)
+    for v in (j3c.get("variants") or {}).values():
+        assert isinstance(v, dict)
+        cov = v.get("coverage")
+        assert isinstance(cov, dict)
+        assert "uach_available_rate" in cov
+        assert "container_hint_coverage" in cov
+        assert "unknown_segment_rate" in cov
 
     r4 = api_client.post("/api/ops/metrics/rollup?range=7d", headers=headers)
     assert r4.status_code == 200

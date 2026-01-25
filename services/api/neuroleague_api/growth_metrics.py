@@ -269,6 +269,7 @@ def rollup_growth_metrics(
         gesture_by_variant: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
         cancel_reasons_by_variant: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
         gesture_bias_by_variant: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+        gesture_segment_coverage_by_variant: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
         for ev in events:
             count_by_type[str(ev.type)] += 1
             payload = _safe_payload(ev)
@@ -298,6 +299,46 @@ def rollup_growth_metrics(
                         step_id = -1
                     if 1 <= step_id <= 6:
                         unique_by_type[f"playtest_step_{step_id}"].add(key)
+
+            # Segment trust / UA-CH coverage (by gesture_thresholds_v1 variant; session-level via play_open).
+            if str(ev.type) == "play_open":
+                meta = payload.get("meta")
+                if not isinstance(meta, dict):
+                    continue
+                variant = meta.get("gesture_thresholds_variant")
+                variant_id = str(variant).strip() if isinstance(variant, str) else ""
+                if variant_id not in {"control", "variant_a", "variant_b"}:
+                    variant_id = "unknown"
+
+                gesture_segment_coverage_by_variant[variant_id]["sessions_n"] += 1.0
+
+                uach_available = meta.get("uach_available")
+                uach_available_bool = (
+                    bool(uach_available)
+                    if not isinstance(uach_available, (int, float))
+                    else int(uach_available) == 1
+                )
+                if uach_available_bool or (
+                    isinstance(meta.get("uaData_platform"), str)
+                    and str(meta.get("uaData_platform") or "").strip()
+                ):
+                    gesture_segment_coverage_by_variant[variant_id][
+                        "uach_available_sessions"
+                    ] += 1.0
+
+                if isinstance(payload.get("ua_container_hint"), str) and str(
+                    payload.get("ua_container_hint") or ""
+                ).strip():
+                    gesture_segment_coverage_by_variant[variant_id][
+                        "container_hint_sessions"
+                    ] += 1.0
+
+                seg = payload.get("ua_segment")
+                seg_s = str(seg).strip().lower() if isinstance(seg, str) else "unknown"
+                if seg_s == "unknown":
+                    gesture_segment_coverage_by_variant[variant_id][
+                        "unknown_segment_sessions"
+                    ] += 1.0
 
             # Gesture attempt telemetry (sampled): aggregate by gesture_thresholds_v1 variant.
             if str(ev.type) in {"swipe_attempt", "tap_attempt"}:
@@ -692,6 +733,28 @@ def rollup_growth_metrics(
                 f"{prefix}.sample_rate_used",
                 float(sample_rate_used),
                 meta={"sample_rate_sum": float(sample_rate_sum), "sessions_n": float(sessions_n)},
+            )
+
+            # Segment trust / UA-CH coverage (based on play_open sessions; do not confuse with sampled session_summary).
+            c = gesture_segment_coverage_by_variant.get(variant_id) or {}
+            sessions_total = float(c.get("sessions_n") or 0.0)
+            uach_sessions = float(c.get("uach_available_sessions") or 0.0)
+            hint_sessions = float(c.get("container_hint_sessions") or 0.0)
+            unknown_sessions = float(c.get("unknown_segment_sessions") or 0.0)
+            add_metric(
+                f"{prefix}.uach_available_rate",
+                float(uach_sessions) / float(sessions_total) if sessions_total > 0 else 0.0,
+                meta={"uach_sessions": float(uach_sessions), "sessions_n": float(sessions_total)},
+            )
+            add_metric(
+                f"{prefix}.container_hint_coverage",
+                float(hint_sessions) / float(sessions_total) if sessions_total > 0 else 0.0,
+                meta={"hint_sessions": float(hint_sessions), "sessions_n": float(sessions_total)},
+            )
+            add_metric(
+                f"{prefix}.unknown_segment_rate",
+                float(unknown_sessions) / float(sessions_total) if sessions_total > 0 else 0.0,
+                meta={"unknown_sessions": float(unknown_sessions), "sessions_n": float(sessions_total)},
             )
 
         session.add_all(metrics)

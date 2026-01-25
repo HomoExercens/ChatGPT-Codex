@@ -66,16 +66,60 @@ def app_container_from_request(request: Request | None) -> str | None:
     return None
 
 
-def _ua_platform_container(*, ua: str, container_hint: str | None) -> tuple[str, str]:
+def _strip_quotes(s: str) -> str:
+    out = str(s or "").strip()
+    if out.startswith('"') and out.endswith('"') and len(out) >= 2:
+        out = out[1:-1].strip()
+    return out
+
+
+def _uach_platform(raw: str | None) -> str | None:
+    v = _strip_quotes(str(raw or ""))
+    if not v:
+        return None
+    v_l = v.lower()
+    if v_l == "android":
+        return "android"
+    if v_l == "ios":
+        return "ios"
+    # Windows/macOS/Linux/Chrome OS/... → desktop bucket.
+    return "desktop"
+
+
+def _uach_is_chromium(raw: str | None) -> bool:
+    v = str(raw or "").lower()
+    if not v:
+        return False
+    # Low-entropy UA-CH brands list (Sec-CH-UA). Treat Chromium-family as "chrome" container.
+    return any(
+        k in v
+        for k in (
+            "chromium",
+            "google chrome",
+            "microsoft edge",
+            "brave",
+            "opera",
+            "vivaldi",
+        )
+    )
+
+
+def _ua_platform_container(
+    *,
+    ua: str,
+    container_hint: str | None,
+    uach_platform: str | None = None,
+    uach_brands: str | None = None,
+) -> tuple[str, str]:
     ua_l = str(ua or "").lower()
 
-    platform = "unknown"
+    platform_from_ua: str | None = None
     if "android" in ua_l:
-        platform = "android"
+        platform_from_ua = "android"
     elif "iphone" in ua_l or "ipad" in ua_l or "ipod" in ua_l:
-        platform = "ios"
-    else:
-        platform = "desktop"
+        platform_from_ua = "ios"
+
+    platform = platform_from_ua or _uach_platform(uach_platform) or "desktop"
 
     if container_hint in {"twa", "chrome", "safari"}:
         return platform, container_hint
@@ -87,6 +131,10 @@ def _ua_platform_container(*, ua: str, container_hint: str | None) -> tuple[str,
         if "safari" in ua_l:
             return platform, "safari"
         return platform, "unknown"
+
+    # UA-CH brands (when UA string is reduced) → chrome bucket.
+    if _uach_is_chromium(uach_brands):
+        return platform, "chrome"
 
     if "chrome/" in ua_l or "chromium" in ua_l:
         return platform, "chrome"
@@ -171,12 +219,19 @@ def log_event(
         try:
             ua = str(request.headers.get("user-agent") or "")
             container_hint = app_container_from_request(request)
+            uach_platform = request.headers.get("sec-ch-ua-platform")
+            uach_brands = request.headers.get("sec-ch-ua")
             platform, container = _ua_platform_container(
-                ua=ua, container_hint=container_hint
+                ua=ua,
+                container_hint=container_hint,
+                uach_platform=str(uach_platform or "") if uach_platform is not None else None,
+                uach_brands=str(uach_brands or "") if uach_brands is not None else None,
             )
             p["ua_platform"] = platform
             p["ua_container"] = container
             p["ua_segment"] = _ua_segment(platform=platform, container=container)
+            if container_hint:
+                p["ua_container_hint"] = container_hint
         except Exception:  # noqa: BLE001
             pass
 

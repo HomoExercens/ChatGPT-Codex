@@ -33,11 +33,18 @@ type GestureSampling = {
   avg_dropped_count: number;
 };
 
+type GestureCoverage = {
+  uach_available_rate: number;
+  container_hint_coverage: number;
+  unknown_segment_rate: number;
+};
+
 type VariantSummary = {
   assigned: number;
   kpis: Record<string, MetricRow>;
   misfire: GestureMisfire;
   sampling: GestureSampling;
+  coverage: GestureCoverage;
 };
 
 type Guardrails = {
@@ -153,6 +160,28 @@ export const OpsGesturesPage: React.FC = () => {
       cap_hit_rate: sessions > 0 ? capHitSessions / sessions : 0,
       avg_dropped_count: sessions > 0 ? droppedSum / sessions : 0,
       sample_rate_used: sessions > 0 ? sampleRateSum / sessions : 0,
+    };
+  }, [variants]);
+
+  const coverageSummary = useMemo(() => {
+    let sessions = 0;
+    let uachSessions = 0;
+    let hintSessions = 0;
+    let unknownSessions = 0;
+    for (const [, v] of variants) {
+      const sn = Number(v?.assigned ?? 0);
+      if (!Number.isFinite(sn) || sn <= 0) continue;
+      sessions += sn;
+      const c = v?.coverage as Partial<GestureCoverage> | undefined;
+      uachSessions += (Number(c?.uach_available_rate ?? 0) || 0) * sn;
+      hintSessions += (Number(c?.container_hint_coverage ?? 0) || 0) * sn;
+      unknownSessions += (Number(c?.unknown_segment_rate ?? 0) || 0) * sn;
+    }
+    return {
+      sessions,
+      uach_available_rate: sessions > 0 ? uachSessions / sessions : 0,
+      container_hint_coverage: sessions > 0 ? hintSessions / sessions : 0,
+      unknown_segment_rate: sessions > 0 ? unknownSessions / sessions : 0,
     };
   }, [variants]);
 
@@ -279,6 +308,17 @@ export const OpsGesturesPage: React.FC = () => {
               <Badge variant="neutral">sample_rate {fmtPct(samplingSummary.sample_rate_used)}</Badge>
             </div>
           ) : null}
+
+          {enabled ? (
+            <div className="flex flex-wrap items-center gap-2 text-xs" data-testid="ops-gestures-coverage-strip">
+              <Badge variant={coverageSummary.sessions > 0 ? 'neutral' : 'warning'}>sessions {fmtCount(coverageSummary.sessions)}</Badge>
+              <Badge variant="neutral">uaData {fmtPct(coverageSummary.uach_available_rate)}</Badge>
+              <Badge variant="neutral">container_hint {fmtPct(coverageSummary.container_hint_coverage)}</Badge>
+              <Badge variant={segment === 'all' && coverageSummary.unknown_segment_rate > 0.25 ? 'warning' : 'neutral'}>
+                unknown {fmtPct(coverageSummary.unknown_segment_rate)}
+              </Badge>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -321,6 +361,7 @@ export const OpsGesturesPage: React.FC = () => {
 
                 const reasons = (mis.cancel_reasons_top ?? []).slice(0, 3);
                 const hasSample = Number(samp.sessions_n ?? 0) > 0;
+                const cov = v.coverage ?? ({} as GestureCoverage);
                 return (
                   <Card key={vid} className="overflow-hidden">
                     <CardHeader>
@@ -367,6 +408,25 @@ export const OpsGesturesPage: React.FC = () => {
                             No sampled sessions for this segment/window. Do not interpret misfire or KPI deltas.
                           </div>
                         ) : null}
+                      </div>
+
+                      <div className="rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3" data-testid={`ops-gestures-coverage-variant-${vid}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-[11px] font-bold text-muted uppercase">Coverage / Trust</div>
+                          <Badge
+                            variant={segment === 'all' && Number(cov.unknown_segment_rate ?? 0) > 0.25 ? 'warning' : 'neutral'}
+                            className="nl-tabular-nums"
+                          >
+                            unknown {fmtPct(cov.unknown_segment_rate ?? 0)}
+                          </Badge>
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted nl-tabular-nums">
+                          <div>uaData {fmtPct(cov.uach_available_rate ?? 0)}</div>
+                          <div>container_hint {fmtPct(cov.container_hint_coverage ?? 0)}</div>
+                        </div>
+                        <div className="mt-2 text-xs text-muted">
+                          UAData coverage is best-effort (often HTTPS Chromium). container_hint comes from <span className="font-mono">X-App-Container</span>.
+                        </div>
                       </div>
 
                       <div className="rounded-2xl border border-border/12 bg-surface-2/35 px-3 py-3">

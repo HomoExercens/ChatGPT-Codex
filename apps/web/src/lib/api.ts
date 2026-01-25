@@ -80,6 +80,10 @@ function getAppContainer(): string | null {
   return chosen;
 }
 
+export function getAppContainerHint(): string | null {
+  return getAppContainer();
+}
+
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const token = useAuthStore.getState().token;
   const headers = new Headers(init?.headers);

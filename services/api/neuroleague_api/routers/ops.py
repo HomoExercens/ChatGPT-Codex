@@ -1532,11 +1532,18 @@ class GestureSamplingOut(BaseModel):
     avg_dropped_count: float = 0.0
 
 
+class GestureCoverageOut(BaseModel):
+    uach_available_rate: float = 0.0
+    container_hint_coverage: float = 0.0
+    unknown_segment_rate: float = 0.0
+
+
 class GestureThresholdsVariantSummaryOut(BaseModel):
     assigned: int = 0  # sessions in window (segment-filtered)
     kpis: dict[str, dict[str, float | int]] = Field(default_factory=dict)
     misfire: GestureMisfireOut = Field(default_factory=GestureMisfireOut)
     sampling: GestureSamplingOut = Field(default_factory=GestureSamplingOut)
+    coverage: GestureCoverageOut = Field(default_factory=GestureCoverageOut)
 
 
 class GestureThresholdsExperimentSummaryOut(BaseModel):
@@ -1624,6 +1631,9 @@ def gesture_thresholds_v1_summary(
     by_variant: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     reasons: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     sampling: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    uach_sessions: dict[str, set[str]] = defaultdict(set)
+    container_hint_sessions: dict[str, set[str]] = defaultdict(set)
+    unknown_segment_sessions: dict[str, set[str]] = defaultdict(set)
     video_load_fail_events_seg = 0
 
     for ev in evs:
@@ -1655,6 +1665,25 @@ def gesture_thresholds_v1_summary(
         if str(ev.type) == "play_open" and session_id:
             session_variant.setdefault(session_id, variant_id)
             sessions_by_variant[variant_id].add(session_id)
+            uach_available = meta.get("uach_available")
+            uach_available_bool = (
+                bool(uach_available)
+                if not isinstance(uach_available, (int, float))
+                else int(uach_available) == 1
+            )
+            if uach_available_bool or (
+                isinstance(meta.get("uaData_platform"), str)
+                and str(meta.get("uaData_platform") or "").strip()
+            ):
+                uach_sessions[variant_id].add(session_id)
+            if isinstance(payload.get("ua_container_hint"), str) and str(
+                payload.get("ua_container_hint") or ""
+            ).strip():
+                container_hint_sessions[variant_id].add(session_id)
+            seg = payload.get("ua_segment")
+            seg_s = str(seg).strip().lower() if isinstance(seg, str) else "unknown"
+            if seg_s == "unknown":
+                unknown_segment_sessions[variant_id].add(session_id)
 
         if session_id and session_id in sessions_by_variant.get(variant_id, set()):
             if str(ev.type) == "beat_this_click":
@@ -1803,6 +1832,24 @@ def gesture_thresholds_v1_summary(
             sample_rate_used=(sr_sum / float(sessions_n)) if sessions_n > 0 else 0.0,
             cap_hit_rate=(cap_hit_sessions / float(sessions_n)) if sessions_n > 0 else 0.0,
             avg_dropped_count=(dropped_sum / float(sessions_n)) if sessions_n > 0 else 0.0,
+        )
+
+        out.coverage = GestureCoverageOut(
+            uach_available_rate=(
+                float(len(uach_sessions.get(vid, set()))) / float(sessions_total)
+                if sessions_total > 0
+                else 0.0
+            ),
+            container_hint_coverage=(
+                float(len(container_hint_sessions.get(vid, set()))) / float(sessions_total)
+                if sessions_total > 0
+                else 0.0
+            ),
+            unknown_segment_rate=(
+                float(len(unknown_segment_sessions.get(vid, set()))) / float(sessions_total)
+                if sessions_total > 0
+                else 0.0
+            ),
         )
 
     http_5xx = int(

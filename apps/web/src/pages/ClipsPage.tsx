@@ -21,12 +21,13 @@ import type {
   ReactResponse,
   Replay,
 } from '../api/types';
-import { apiFetch } from '../lib/api';
+import { apiFetch, getAppContainerHint } from '../lib/api';
 import { getExperimentVariant, useExperiments } from '../lib/experiments';
 import { playSfx, tapJuice, vibrate } from '../lib/juice';
 import { getLastReactionType, setLastReactionType, type ReactionType } from '../lib/reactions';
 import { toast } from '../lib/toast';
 import { TRANSLATIONS } from '../lib/translations';
+import { getUaDataLowEntropy } from '../lib/uach';
 import { appendUtmParams } from '../lib/utm';
 import { useChromeStore } from '../stores/chrome';
 import { useSettingsStore } from '../stores/settings';
@@ -457,6 +458,17 @@ export const ClipsPage: React.FC = () => {
   const playChromeHidden = useChromeStore((s) => s.playChromeHidden);
   const setPlayChromeHidden = useChromeStore((s) => s.setPlayChromeHidden);
 
+  const uaDataLow = useMemo(() => getUaDataLowEntropy(), []);
+  const appContainerHint = useMemo(() => getAppContainerHint(), []);
+  const uachMeta = useMemo(() => {
+    const m: Record<string, unknown> = { uach_available: uaDataLow.uach_available };
+    if (uaDataLow.uaData_platform) m.uaData_platform = uaDataLow.uaData_platform;
+    if (typeof uaDataLow.uaData_mobile === 'boolean') m.uaData_mobile = uaDataLow.uaData_mobile;
+    if (uaDataLow.uaData_brands_major) m.uaData_brands_major = uaDataLow.uaData_brands_major;
+    if (appContainerHint) m.app_container_hint = appContainerHint;
+    return m;
+  }, [appContainerHint, uaDataLow]);
+
   const trackPlayUiEvent = React.useCallback(
     (type: string, meta?: Record<string, unknown>) => {
       apiFetch('/api/events/track', {
@@ -690,6 +702,7 @@ export const ClipsPage: React.FC = () => {
 
       trackPlayUiEventKeepalive('gesture_session_summary', {
         reason,
+        ...uachMeta,
         // bias observability
         sample_rate: state.sample_rate,
         cap: GESTURE_ATTEMPT_SESSION_CAP,
@@ -704,7 +717,7 @@ export const ClipsPage: React.FC = () => {
         cancel_reasons: reasons,
       });
     },
-    [getOrInitGestureAttemptSamplingState, trackPlayUiEventKeepalive]
+    [getOrInitGestureAttemptSamplingState, trackPlayUiEventKeepalive, uachMeta]
   );
 
   const autoHideTimer = useRef<number | null>(null);
@@ -980,8 +993,8 @@ export const ClipsPage: React.FC = () => {
   useEffect(() => {
     if (playOpenTracked.current) return;
     playOpenTracked.current = true;
-    trackPlayUiEvent('play_open');
-  }, [trackPlayUiEvent]);
+    trackPlayUiEvent('play_open', uachMeta);
+  }, [trackPlayUiEvent, uachMeta]);
 
   useEffect(() => {
     const onPageHide = () => flushGestureSessionSummary('pagehide');
