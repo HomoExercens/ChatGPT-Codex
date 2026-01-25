@@ -14,6 +14,11 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
   );
 }
 
+type TapInfo = {
+  clientX: number;
+  clientY: number;
+};
+
 export function GesturePager(props: {
   index: number;
   count: number;
@@ -22,15 +27,25 @@ export function GesturePager(props: {
   className?: string;
   pageClassName?: string;
   renderPage: (index: number) => React.ReactNode;
-  onTap?: () => void;
+  onTap?: (info: TapInfo) => void;
 }) {
   const { index, count, onIndexChange, reduceMotion, className, pageClassName, renderPage, onTap } = props;
   const containerRef = React.useRef<HTMLDivElement | null>(null);
-  const startRef = React.useRef<{ y: number; t: number; moved: boolean; lastY: number } | null>(null);
+  const startRef = React.useRef<{
+    x0: number;
+    y0: number;
+    t0: number;
+    lastX: number;
+    lastY: number;
+    lastT: number;
+    dragging: boolean;
+    canceled: boolean;
+  } | null>(null);
   const pendingIndex = React.useRef<number | null>(null);
 
   const [dragY, setDragY] = React.useState(0);
   const [animating, setAnimating] = React.useState(false);
+  const dragYRef = React.useRef(0);
 
   const heightRef = React.useRef(0);
 
@@ -38,6 +53,7 @@ export function GesturePager(props: {
     pendingIndex.current = null;
     setAnimating(false);
     setDragY(0);
+    dragYRef.current = 0;
   }, [count]);
 
   const measure = () => {
@@ -50,24 +66,30 @@ export function GesturePager(props: {
     const h = measure();
     pendingIndex.current = next;
     if (next === null) {
-      if (Math.abs(dragY) < 1) {
+      if (Math.abs(dragYRef.current) < 1) {
         setAnimating(false);
         setDragY(0);
+        dragYRef.current = 0;
         return;
       }
       setAnimating(true);
       setDragY(0);
+      dragYRef.current = 0;
       return;
     }
     setAnimating(true);
     if (next > index) setDragY(-h);
     else if (next < index) setDragY(h);
     else setDragY(0);
+    dragYRef.current = next > index ? -h : next < index ? h : 0;
   };
+
+  const TAP_SLOP_PX = 10;
+  const DRAG_START_PX = 12;
+  const VERTICAL_DOMINANCE = 1.2;
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (animating) return;
-    if (count <= 1) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     if (isInteractiveTarget(e.target)) return;
     const h = measure();
@@ -77,40 +99,94 @@ export function GesturePager(props: {
     } catch {
       // ignore
     }
-    startRef.current = { y: e.clientY, lastY: e.clientY, t: performance.now(), moved: false };
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    startRef.current = {
+      x0: e.clientX,
+      y0: e.clientY,
+      t0: now,
+      lastX: e.clientX,
+      lastY: e.clientY,
+      lastT: now,
+      dragging: false,
+      canceled: false,
+    };
     setDragY(0);
+    dragYRef.current = 0;
     setAnimating(false);
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const st = startRef.current;
     if (!st || animating) return;
-    const dyRaw = e.clientY - st.y;
+    if (st.canceled) return;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    st.lastX = e.clientX;
     st.lastY = e.clientY;
-    if (!st.moved && Math.abs(dyRaw) > 8) st.moved = true;
+    st.lastT = now;
+
+    const dxRaw = e.clientX - st.x0;
+    const dyRaw = e.clientY - st.y0;
+    const dxAbs = Math.abs(dxRaw);
+    const dyAbs = Math.abs(dyRaw);
+
+    // Don't lock into a swipe until the user has moved beyond slop.
+    if (!st.dragging) {
+      if (dxAbs < TAP_SLOP_PX && dyAbs < TAP_SLOP_PX) return;
+
+      // Prefer vertical pager; ignore obvious horizontal drags.
+      if (dxAbs >= DRAG_START_PX && dxAbs >= dyAbs * VERTICAL_DOMINANCE) {
+        st.canceled = true;
+        setDragY(0);
+        dragYRef.current = 0;
+        return;
+      }
+
+      // Start vertical drag once it dominates.
+      const looksVertical = dyAbs >= DRAG_START_PX && (dyAbs >= dxAbs * VERTICAL_DOMINANCE || dyAbs > dxAbs);
+      if (!looksVertical) return;
+      st.dragging = true;
+    }
 
     let dy = dyRaw;
     if (index === 0 && dy > 0) dy *= 0.35;
     if (index === count - 1 && dy < 0) dy *= 0.35;
     setDragY(dy);
+    dragYRef.current = dy;
   };
 
   const onPointerUp = () => {
     const st = startRef.current;
     startRef.current = null;
     if (!st) return;
-
-    const h = measure();
-    const dt = Math.max(1, performance.now() - st.t);
-    const dy = dragY;
-    const v = dy / dt; // px/ms
-
-    // Tap (no meaningful movement).
-    if (!st.moved) {
-      onTap?.();
+    if (st.canceled) {
       pendingIndex.current = null;
       setAnimating(false);
       setDragY(0);
+      dragYRef.current = 0;
+      return;
+    }
+
+    const h = measure();
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const dt = Math.max(1, now - st.t0);
+    const dxAbs = Math.abs(st.lastX - st.x0);
+    const dyAbs = Math.abs(st.lastY - st.y0);
+    const dy = dragYRef.current;
+    const v = dy / dt; // px/ms (avg)
+
+    // Tap (no meaningful movement).
+    if (!st.dragging && dxAbs < TAP_SLOP_PX && dyAbs < TAP_SLOP_PX) {
+      onTap?.({ clientX: st.lastX, clientY: st.lastY });
+      pendingIndex.current = null;
+      setAnimating(false);
+      setDragY(0);
+      dragYRef.current = 0;
+      return;
+    }
+
+    // No swipe paging when there isn't another page, but still animate back to rest.
+    if (count <= 1) {
+      settle(null);
       return;
     }
 
@@ -127,10 +203,11 @@ export function GesturePager(props: {
 
   const onPointerCancel = () => {
     startRef.current = null;
-    if (Math.abs(dragY) < 1) {
+    if (Math.abs(dragYRef.current) < 1) {
       pendingIndex.current = null;
       setAnimating(false);
       setDragY(0);
+      dragYRef.current = 0;
       return;
     }
     settle(null);
@@ -164,7 +241,7 @@ export function GesturePager(props: {
     <div
       ref={containerRef}
       data-testid="gesture-pager"
-      className={cn('relative h-full w-full overflow-hidden touch-none', className)}
+      className={cn('relative h-full w-full overflow-hidden touch-none overscroll-none select-none', className)}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

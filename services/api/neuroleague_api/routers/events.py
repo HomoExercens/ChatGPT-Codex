@@ -39,6 +39,13 @@ EventType = Literal[
     # Mega-hit FTUE (mobile).
     "play_open",
     "ftue_completed",
+    # /play gesture telemetry (v2.1.1).
+    "swipe_next",
+    "swipe_prev",
+    "double_tap_reaction",
+    "chrome_autohide_shown",
+    "chrome_autohide_hidden",
+    "unmute_click",
     # Quests.
     "quest_viewed",
     "quest_progressed",

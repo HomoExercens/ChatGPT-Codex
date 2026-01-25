@@ -49,7 +49,10 @@ type ClipShareUrlOut = {
 const clampIndex = (idx: number, total: number) => Math.max(0, Math.min(total - 1, idx));
 const FTUE_KEY = 'neuroleague.ftue.play.v1.dismissed';
 const HERO_FEED_KEY = 'neuroleague.play.hero_feed.v1.seen';
+const GESTURE_HINT_KEY = 'neuroleague.play.gesture_hints.v2_1_1.dismissed';
 const TICKS_PER_SEC = 20;
+const DOUBLE_TAP_MS = 260;
+const DOUBLE_TAP_SLOP_PX = 14;
 
 type HudOutcome = 'win' | 'loss' | 'draw';
 type ClipHudMoment =
@@ -231,6 +234,23 @@ export const ClipsPage: React.FC = () => {
       return true;
     }
   });
+  const [gestureHintsOpen, setGestureHintsOpen] = useState(() => {
+    try {
+      return localStorage.getItem(GESTURE_HINT_KEY) !== '1';
+    } catch {
+      return true;
+    }
+  });
+  const [gestureHintsFading, setGestureHintsFading] = useState(false);
+  const dismissGestureHints = React.useCallback(() => {
+    try {
+      localStorage.setItem(GESTURE_HINT_KEY, '1');
+    } catch {
+      // ignore
+    }
+    setGestureHintsFading(false);
+    setGestureHintsOpen(false);
+  }, []);
 
   const { data: experiments } = useExperiments();
   const feedAlgo = useMemo(() => {
@@ -290,6 +310,19 @@ export const ClipsPage: React.FC = () => {
       // ignore
     }
   }, [data?.pages?.length, heroEnabled]);
+
+  useEffect(() => {
+    if (!gestureHintsOpen) return;
+    if (ftueOpen) return;
+
+    setGestureHintsFading(false);
+    const fadeAt = window.setTimeout(() => setGestureHintsFading(true), 2000);
+    const hideAt = window.setTimeout(() => dismissGestureHints(), reduceMotion ? 2000 : 2350);
+    return () => {
+      window.clearTimeout(fadeAt);
+      window.clearTimeout(hideAt);
+    };
+  }, [dismissGestureHints, ftueOpen, gestureHintsOpen, reduceMotion]);
 
   const { data: me } = useQuery({
     queryKey: ['me'],
@@ -369,33 +402,76 @@ export const ClipsPage: React.FC = () => {
   const playChromeHidden = useChromeStore((s) => s.playChromeHidden);
   const setPlayChromeHidden = useChromeStore((s) => s.setPlayChromeHidden);
 
+  const trackPlayUiEvent = React.useCallback(
+    (type: string, meta?: Record<string, unknown>) => {
+      apiFetch('/api/events/track', {
+        method: 'POST',
+        body: JSON.stringify({
+          type,
+          source: 'play',
+          meta: {
+            mode,
+            sort,
+            feed_algo: feedAlgo,
+            hero_variant: heroFeedVariant,
+            ...(meta ?? {}),
+          },
+        }),
+      }).catch(() => {
+        // best-effort
+      });
+    },
+    [feedAlgo, heroFeedVariant, mode, sort]
+  );
+
   const autoHideTimer = useRef<number | null>(null);
   const autoHideBlockedRef = useRef<boolean>(false);
   const [keyboardMode, setKeyboardMode] = useState(false);
+  const [a11yFocusWithin, setA11yFocusWithin] = useState(false);
 
-  const clearAutoHide = () => {
+  const clearAutoHide = React.useCallback(() => {
     if (autoHideTimer.current) {
       window.clearTimeout(autoHideTimer.current);
       autoHideTimer.current = null;
     }
-  };
+  }, []);
+
+  const hideChrome = React.useCallback(
+    (reason: string = 'user') => {
+      clearAutoHide();
+      if (!playChromeHidden) {
+        setPlayChromeHidden(true);
+        if (reason !== 'init' && reason !== 'blocked' && reason !== 'unmount') {
+          trackPlayUiEvent('chrome_autohide_hidden', { reason, replay_id: activeClip?.replay_id ?? null });
+        }
+      }
+    },
+    [activeClip?.replay_id, clearAutoHide, playChromeHidden, setPlayChromeHidden, trackPlayUiEvent]
+  );
 
   const armAutoHide = React.useCallback(() => {
     clearAutoHide();
     if (autoHideBlockedRef.current) return;
     autoHideTimer.current = window.setTimeout(() => {
       if (autoHideBlockedRef.current) return;
-      setPlayChromeHidden(true);
+      hideChrome('idle');
     }, 6500);
-  }, [setPlayChromeHidden]);
+  }, [clearAutoHide, hideChrome]);
 
-  const showChrome = React.useCallback(() => {
-    setPlayChromeHidden(false);
-    armAutoHide();
-  }, [armAutoHide, setPlayChromeHidden]);
+  const showChrome = React.useCallback(
+    (reason: string = 'user') => {
+      const wasHidden = playChromeHidden;
+      setPlayChromeHidden(false);
+      if (wasHidden && reason !== 'init' && reason !== 'blocked' && reason !== 'unmount') {
+        trackPlayUiEvent('chrome_autohide_shown', { reason, replay_id: activeClip?.replay_id ?? null });
+      }
+      armAutoHide();
+    },
+    [activeClip?.replay_id, armAutoHide, playChromeHidden, setPlayChromeHidden, trackPlayUiEvent]
+  );
 
   useEffect(() => {
-    showChrome();
+    showChrome('init');
     return () => {
       clearAutoHide();
       setPlayChromeHidden(false);
@@ -406,7 +482,7 @@ export const ClipsPage: React.FC = () => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Tab' || e.key === 'Shift' || e.key.startsWith('Arrow')) {
         setKeyboardMode(true);
-        showChrome();
+        showChrome('keyboard');
       }
     };
     const onPointerDown = () => setKeyboardMode(false);
@@ -419,16 +495,63 @@ export const ClipsPage: React.FC = () => {
   }, [showChrome]);
 
   useEffect(() => {
-    autoHideBlockedRef.current = reduceMotion || ftueOpen || questsOpen || quickRemixOpen || repliesOpen || keyboardMode;
+    const onFocusIn = () => {
+      setA11yFocusWithin(true);
+      showChrome('focus');
+    };
+    const onFocusOut = () => {
+      window.setTimeout(() => {
+        const el = document.activeElement as HTMLElement | null;
+        const hasFocus = Boolean(el && el !== document.body && el !== document.documentElement);
+        setA11yFocusWithin(hasFocus);
+      }, 0);
+    };
+
+    window.addEventListener('focusin', onFocusIn);
+    window.addEventListener('focusout', onFocusOut);
+    return () => {
+      window.removeEventListener('focusin', onFocusIn);
+      window.removeEventListener('focusout', onFocusOut);
+    };
+  }, [showChrome]);
+
+  useEffect(() => {
+    autoHideBlockedRef.current = reduceMotion || ftueOpen || questsOpen || quickRemixOpen || repliesOpen || keyboardMode || a11yFocusWithin;
     if (autoHideBlockedRef.current) {
       setPlayChromeHidden(false);
       clearAutoHide();
       return;
     }
     armAutoHide();
-  }, [armAutoHide, ftueOpen, keyboardMode, questsOpen, quickRemixOpen, reduceMotion, repliesOpen, setPlayChromeHidden]);
+  }, [
+    a11yFocusWithin,
+    armAutoHide,
+    clearAutoHide,
+    ftueOpen,
+    keyboardMode,
+    questsOpen,
+    quickRemixOpen,
+    reduceMotion,
+    repliesOpen,
+    setPlayChromeHidden,
+  ]);
 
-  const lastTapAt = useRef<number>(0);
+  const lastTap = useRef<{ t: number; x: number; y: number } | null>(null);
+  const pendingSingleTap = useRef<number | null>(null);
+  const clearPendingSingleTap = React.useCallback(() => {
+    if (pendingSingleTap.current) {
+      window.clearTimeout(pendingSingleTap.current);
+      pendingSingleTap.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearPendingSingleTap();
+      lastTap.current = null;
+    };
+  }, [clearPendingSingleTap]);
+
   const lastReactAt = useRef<number>(0);
   const [reactionBurst, setReactionBurst] = useState<{ key: string; reaction: ReactionType } | null>(null);
 
@@ -835,43 +958,102 @@ export const ClipsPage: React.FC = () => {
     setLastReactionType(reactionType);
     setReactionBurst({ key: `burst_${replayId}_${Date.now()}`, reaction: reactionType });
     reactMutation.mutate({ replayId, reactionType });
+    trackPlayUiEvent('double_tap_reaction', { replay_id: replayId, reaction_type: reactionType });
     tapJuice();
-  }, [activeClip?.replay_id, reactMutation]);
+  }, [activeClip?.replay_id, reactMutation, trackPlayUiEvent]);
 
-  const handlePagerTap = React.useCallback(() => {
-    showChrome();
+  const handlePagerTap = React.useCallback(
+    (info: { clientX: number; clientY: number }) => {
+      if (gestureHintsOpen) dismissGestureHints();
 
-    const v = videoRefs.current[activeIndex];
-    if (v && v.muted) {
-      tapJuice();
-      try {
-        v.muted = false;
-      } catch {
-        // ignore
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const prev = lastTap.current;
+      const isDoubleTap =
+        Boolean(prev) &&
+        now - (prev?.t ?? 0) <= DOUBLE_TAP_MS &&
+        Math.hypot((prev?.x ?? 0) - info.clientX, (prev?.y ?? 0) - info.clientY) <= DOUBLE_TAP_SLOP_PX;
+
+      if (isDoubleTap) {
+        clearPendingSingleTap();
+        lastTap.current = null;
+        triggerDoubleTapReaction();
+        return;
       }
-      setSoundEnabled(true);
-      v.play().catch(() => {
-        toast.info(lang === 'ko' ? '음성 재생이 차단됨 (다시 탭)' : 'Audio blocked (tap again)');
-      });
-      toast.info(lang === 'ko' ? '사운드 ON' : 'Sound on');
-    }
 
-    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    if (now - lastTapAt.current < 280) {
-      lastTapAt.current = 0;
-      triggerDoubleTapReaction();
-      return;
-    }
-    lastTapAt.current = now;
-  }, [activeIndex, lang, setSoundEnabled, showChrome, triggerDoubleTapReaction]);
+      lastTap.current = { t: now, x: info.clientX, y: info.clientY };
+      clearPendingSingleTap();
+
+      pendingSingleTap.current = window.setTimeout(() => {
+        pendingSingleTap.current = null;
+        lastTap.current = null;
+
+        // Tap-to-unmute: only from a confirmed single tap.
+        const v = videoRefs.current[activeIndex];
+        if (v && v.muted) {
+          tapJuice();
+          try {
+            v.muted = false;
+          } catch {
+            // ignore
+          }
+          setSoundEnabled(true);
+          trackPlayUiEvent('unmute_click', { via: 'tap', replay_id: activeClip?.replay_id ?? null });
+          v.play().catch(() => {
+            toast.info(lang === 'ko' ? '음성 재생이 차단됨 (다시 탭)' : 'Audio blocked (tap again)');
+          });
+          toast.info(lang === 'ko' ? '사운드 ON' : 'Sound on');
+          showChrome('tap_unmute');
+          return;
+        }
+
+        // If chrome auto-hide is blocked (a11y/overlay), never hide on tap.
+        if (autoHideBlockedRef.current) {
+          showChrome('tap');
+          return;
+        }
+
+        // Single tap toggles chrome (immersive).
+        if (playChromeHidden) showChrome('tap_toggle');
+        else hideChrome('tap_toggle');
+      }, DOUBLE_TAP_MS);
+    },
+    [
+      activeClip?.replay_id,
+      activeIndex,
+      autoHideBlockedRef,
+      clearPendingSingleTap,
+      dismissGestureHints,
+      gestureHintsOpen,
+      hideChrome,
+      lang,
+      playChromeHidden,
+      setSoundEnabled,
+      showChrome,
+      trackPlayUiEvent,
+      triggerDoubleTapReaction,
+    ]
+  );
+
+  const activeIndexRef = useRef(activeIndex);
+  useEffect(() => {
+    activeIndexRef.current = activeIndex;
+  }, [activeIndex]);
 
   const handlePagerIndexChange = React.useCallback(
     (nextIdx: number) => {
-      lastTapAt.current = 0;
+      clearPendingSingleTap();
+      lastTap.current = null;
+
+      const prevIdx = activeIndexRef.current;
+      const prevReplayId = clips[prevIdx]?.replay_id ?? null;
+      const nextReplayId = clips[nextIdx]?.replay_id ?? null;
+      if (nextIdx > prevIdx) trackPlayUiEvent('swipe_next', { from_replay_id: prevReplayId, to_replay_id: nextReplayId });
+      if (nextIdx < prevIdx) trackPlayUiEvent('swipe_prev', { from_replay_id: prevReplayId, to_replay_id: nextReplayId });
+
       setActiveIndex(nextIdx);
-      showChrome();
+      showChrome('swipe');
     },
-    [showChrome]
+    [clearPendingSingleTap, clips, showChrome, trackPlayUiEvent]
   );
 
   const renderClipPage = (idx: number) => {
@@ -1235,7 +1417,7 @@ export const ClipsPage: React.FC = () => {
 
   return (
     <>
-      <div className="relative h-[100dvh] bg-bg overflow-hidden">
+      <div className="relative h-[100dvh] bg-bg overflow-hidden overscroll-none">
         <div className={`absolute top-0 left-0 right-0 z-20 px-4 pt-[calc(env(safe-area-inset-top)+12px)] pb-3 ${chromeAnim}`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -1253,13 +1435,14 @@ export const ClipsPage: React.FC = () => {
                 size="icon"
                 variant="secondary"
                 className="bg-surface-1/35 text-fg border-border/12 hover:bg-surface-1/45 rounded-full"
-                onClick={() => {
-                  const next = !soundEnabled;
-                  setSoundEnabled(next);
-                  tapJuice();
-                  toast.info(
-                    next ? (lang === 'ko' ? '사운드 ON' : 'Sound on') : lang === 'ko' ? '사운드 OFF' : 'Sound off'
-                  );
+	                onClick={() => {
+	                  const next = !soundEnabled;
+	                  setSoundEnabled(next);
+	                  if (next) trackPlayUiEvent('unmute_click', { via: 'button', replay_id: activeClip?.replay_id ?? null });
+	                  tapJuice();
+	                  toast.info(
+	                    next ? (lang === 'ko' ? '사운드 ON' : 'Sound on') : lang === 'ko' ? '사운드 OFF' : 'Sound off'
+	                  );
                   const v = videoRefs.current[activeIndex];
                   if (v) {
                     try {
@@ -1270,11 +1453,11 @@ export const ClipsPage: React.FC = () => {
                     if (next && v.paused) {
                       v.play().catch(() => {
                         toast.info(lang === 'ko' ? '화면을 탭해 재생하세요' : 'Tap the video to play');
-                      });
-                    }
-                  }
-                  showChrome();
-                }}
+	                      });
+	                    }
+	                  }
+	                  showChrome('sound_button');
+	                }}
                 aria-label={soundEnabled ? 'Mute' : 'Unmute'}
               >
                 <Icon icon={soundEnabled ? Volume2 : VolumeX} size={20} />
@@ -1426,15 +1609,34 @@ export const ClipsPage: React.FC = () => {
             onTap={handlePagerTap}
             renderPage={renderClipPage}
           />
-        )}
+	        )}
+	
+	        <div data-testid="active-replay-id" data-replay-id={activeClip?.replay_id ?? ''} className="sr-only" />
 
-        <div data-testid="active-replay-id" data-replay-id={activeClip?.replay_id ?? ''} className="sr-only" />
-
-        <div className={`absolute bottom-4 left-4 z-20 pointer-events-none flex items-center gap-2 text-fg/60 text-[11px] nl-video-text ${chromeAnim}`}>
-          <Icon icon={Sparkles} size={20} />
-          <span>{lang === 'ko' ? '스와이프 ↑/↓' : 'Swipe ↑/↓'}</span>
-        </div>
-      </div>
+	        {gestureHintsOpen && !ftueOpen ? (
+	          <button
+	            type="button"
+	            onClick={() => {
+	              tapJuice();
+	              dismissGestureHints();
+	            }}
+	            className={`absolute left-1/2 z-30 -translate-x-1/2 pointer-events-auto ${
+	              reduceMotion ? 'opacity-95' : gestureHintsFading ? 'opacity-0' : 'opacity-100'
+	            } transition-opacity duration-300 ease-out bottom-[calc(var(--nl-tabbar-h)+env(safe-area-inset-bottom)+14px)]`}
+	            aria-label={lang === 'ko' ? '제스처 힌트 닫기' : 'Dismiss gesture hints'}
+	          >
+	            <div className="rounded-full border border-border/12 bg-surface-1/55 backdrop-blur-xl shadow-glass px-3 py-2 text-[11px] font-bold nl-video-text text-fg/80">
+	              <div className="flex items-center gap-2">
+	                <Icon icon={Sparkles} size={20} />
+	                <span className="whitespace-nowrap">{lang === 'ko' ? '스와이프 ↑/↓' : 'Swipe ↑/↓'}</span>
+	                <span className="mx-1 h-4 w-px bg-border/20" aria-hidden="true" />
+	                <Icon icon={Heart} size={20} />
+	                <span className="whitespace-nowrap">{lang === 'ko' ? '더블탭 = 리액션' : 'Double-tap to react'}</span>
+	              </div>
+	            </div>
+	          </button>
+	        ) : null}
+	      </div>
 
       <BottomSheet
         open={questsOpen}

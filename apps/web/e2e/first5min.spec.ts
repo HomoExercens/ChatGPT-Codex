@@ -10,6 +10,7 @@ const __dirname = path.dirname(__filename);
 const SCREENSHOTS_DIR = path.resolve(__dirname, '../../../docs/screenshots');
 
 test.describe.configure({ mode: 'serial' });
+test.skip(process.env.NEUROLEAGUE_E2E_FAST === '1', 'Skipped in fast E2E mode (heavy scenario).');
 
 async function ensureScreenshotsDir(): Promise<void> {
   await fs.promises.mkdir(SCREENSHOTS_DIR, { recursive: true });
